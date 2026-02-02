@@ -164,6 +164,7 @@ class SPS30:
 
     def read_auto_cleaning_interval(self) -> int:
         self.i2c.write(CMD_AUTO_CLEANING_INTERVAL)
+        sleep(0.05)
         data = self.i2c.read(NBYTES_AUTO_CLEANING_INTERVAL)
 
         interval = []
@@ -391,6 +392,7 @@ class SPS30:
     def stop_measurement(self) -> None:
         self.i2c.write(CMD_STOP_MEASUREMENT)
         self.i2c.close()
+
 
     def __run(self) -> None:
         threading.Thread(target=self.__read_measured_value,
