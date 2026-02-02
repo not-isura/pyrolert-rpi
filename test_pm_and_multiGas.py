@@ -69,34 +69,35 @@ if __name__ == "__main__":
     ctr = 0
     while True:
         try:
-            # pm_current_reading = json.dumps(pm_sensor.get_measurement(), indent=2)
-            pm_measurement = pm_sensor.get_measurement()
-            pm_sensor_data = pm_measurement.get("sensor_data", {})
-
-            mass_density = pm_sensor_data.get("mass_density", {})
-            mass_density_values = [
-                ("pm1.0", mass_density.get("pm1.0", 0.0)),
-                ("pm2.5", mass_density.get("pm2.5", 0.0)),
-                ("pm4.0", mass_density.get("pm4.0", 0.0)),
-                ("pm10", mass_density.get("pm10", 0.0)),
-            ]
-            mass_density_unit = pm_sensor_data.get("mass_density_unit", "ug/m3")
-
-            particle_count = pm_sensor_data.get("particle_count", {})
-            particle_count_values = [
-                ("pm0.5", particle_count.get("pm0.5", 0.0)),
-                ("pm1.0", particle_count.get("pm1.0", 0.0)),
-                ("pm2.5", particle_count.get("pm2.5", 0.0)),
-                ("pm4.0", particle_count.get("pm4.0", 0.0)),
-                ("pm10", particle_count.get("pm10", 0.0)),
-            ]
-            particle_count_unit = pm_sensor_data.get("particle_count_unit", "#/cm3")
-
-            particle_size = pm_sensor_data.get("particle_size")
-            particle_size_unit = pm_sensor_data.get("particle_size_unit", "um")
-            timestamp = pm_measurement.get("timestamp")
-
-
+            # Get PM sensor measurement as dictionary
+            pm_data = pm_sensor.get_measurement()
+            
+            # Extract mass density values
+            mass_density = pm_data["sensor_data"]["mass_density"]
+            pm_mass = {
+                "pm1.0": mass_density["pm1.0"],
+                "pm2.5": mass_density["pm2.5"],
+                "pm4.0": mass_density["pm4.0"],
+                "pm10": mass_density["pm10"]
+            }
+            
+            # Extract particle count values
+            particle_count = pm_data["sensor_data"]["particle_count"]
+            pm_count = {
+                "pm0.5": particle_count["pm0.5"],
+                "pm1.0": particle_count["pm1.0"],
+                "pm2.5": particle_count["pm2.5"],
+                "pm4.0": particle_count["pm4.0"],
+                "pm10": particle_count["pm10"]
+            }
+            
+            # Extract other values
+            particle_size = pm_data["sensor_data"]["particle_size"]
+            mass_unit = pm_data["sensor_data"]["mass_density_unit"]
+            count_unit = pm_data["sensor_data"]["particle_count_unit"]
+            size_unit = pm_data["sensor_data"]["particle_size_unit"]
+            timestamp = pm_data["timestamp"]
+            
             time.sleep(0.1)
             concentration_CO = gas_CO.read_gas_concentration()
             time.sleep(0.1)
@@ -130,10 +131,24 @@ if __name__ == "__main__":
             print("Concentration:", concentration_NO2, gas_NO2.gasunits)
             print("Temperature:", gas_NO2.temp, "°C")  
 
-            print("Mass density", mass_density_unit, mass_density_values)
-            # print("Particle count", particle_count_unit, particle_count_values)
-            # print("Particle size", particle_size, particle_size_unit)
-            #print(pm_current_reading)
+            # Print PM sensor data in formatted way
+            print("\n=== PM Sensor Data ===")
+            print("Mass Density:")
+            print(f"  PM 1.0:  {pm_mass['pm1.0']:.3f} {mass_unit}")
+            print(f"  PM 2.5:  {pm_mass['pm2.5']:.3f} {mass_unit}")
+            print(f"  PM 4.0:  {pm_mass['pm4.0']:.3f} {mass_unit}")
+            print(f"  PM 10:   {pm_mass['pm10']:.3f} {mass_unit}")
+            
+            print("\nParticle Count:")
+            print(f"  PM 0.5:  {pm_count['pm0.5']:.3f} {count_unit}")
+            print(f"  PM 1.0:  {pm_count['pm1.0']:.3f} {count_unit}")
+            print(f"  PM 2.5:  {pm_count['pm2.5']:.3f} {count_unit}")
+            print(f"  PM 4.0:  {pm_count['pm4.0']:.3f} {count_unit}")
+            print(f"  PM 10:   {pm_count['pm10']:.3f} {count_unit}")
+            
+            print(f"\nParticle Size: {particle_size:.3f} {size_unit}")
+            print(f"Timestamp: {timestamp}")
+
             sleep(1)
 
         except KeyboardInterrupt:
