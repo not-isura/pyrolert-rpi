@@ -69,7 +69,34 @@ if __name__ == "__main__":
     ctr = 0
     while True:
         try:
-            pm_current_reading = json.dumps(pm_sensor.get_measurement(), indent=2)
+            # pm_current_reading = json.dumps(pm_sensor.get_measurement(), indent=2)
+            pm_measurement = pm_sensor.get_measurement()
+            pm_sensor_data = pm_measurement.get("sensor_data", {})
+
+            mass_density = pm_sensor_data.get("mass_density", {})
+            mass_density_values = [
+                ("pm1.0", mass_density.get("pm1.0", 0.0)),
+                ("pm2.5", mass_density.get("pm2.5", 0.0)),
+                ("pm4.0", mass_density.get("pm4.0", 0.0)),
+                ("pm10", mass_density.get("pm10", 0.0)),
+            ]
+            mass_density_unit = pm_sensor_data.get("mass_density_unit", "ug/m3")
+
+            particle_count = pm_sensor_data.get("particle_count", {})
+            particle_count_values = [
+                ("pm0.5", particle_count.get("pm0.5", 0.0)),
+                ("pm1.0", particle_count.get("pm1.0", 0.0)),
+                ("pm2.5", particle_count.get("pm2.5", 0.0)),
+                ("pm4.0", particle_count.get("pm4.0", 0.0)),
+                ("pm10", particle_count.get("pm10", 0.0)),
+            ]
+            particle_count_unit = pm_sensor_data.get("particle_count_unit", "#/cm3")
+
+            particle_size = pm_sensor_data.get("particle_size")
+            particle_size_unit = pm_sensor_data.get("particle_size_unit", "um")
+            timestamp = pm_measurement.get("timestamp")
+
+
             time.sleep(0.1)
             concentration_CO = gas_CO.read_gas_concentration()
             time.sleep(0.1)
@@ -103,7 +130,10 @@ if __name__ == "__main__":
             print("Concentration:", concentration_NO2, gas_NO2.gasunits)
             print("Temperature:", gas_NO2.temp, "°C")  
 
-            print(pm_current_reading)
+            print("Mass density", mass_density_unit, mass_density_values)
+            # print("Particle count", particle_count_unit, particle_count_values)
+            # print("Particle size", particle_size, particle_size_unit)
+            #print(pm_current_reading)
             sleep(1)
 
         except KeyboardInterrupt:

@@ -42,7 +42,7 @@ SIZE_INTEGER = 3  # unsigned 16 bit integer
 
 class SPS30:
 
-    def __init__(self,  bus: int = 1, address: int = 0x69, sampling_period: int = 1, logger: str = None):
+    def __init__(self,  bus: int = 2, address: int = 0x69, sampling_period: int = 1, logger: str = None):
         self.logger = None
         if logger:
             self.logger = logging.getLogger(logger)
