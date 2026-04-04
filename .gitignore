@@ -1,3 +1,8 @@
 /trash
-/test_db
 /__pycache__
+/test_db/__pycache__
+/test_db/.pytest_cache
+/test_db/__init__.py
+/test_db/db.sqlite
+
+
