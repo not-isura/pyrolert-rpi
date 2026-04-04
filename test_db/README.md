@@ -52,3 +52,60 @@ It then returns a ready-to-use connection object, so your app can immediately in
 - Start with mock data to learn SQLite. Real sensors can later call the same `insert_reading` API, so your scripts stay simple.
 - `pm25` is stored as REAL (double precision) so you can compute on it easily.
 - WAL + busy timeout makes reads/writes smoother on the Pi; keep or disable via `init_db(enable_wal=False)` if desired.
+
+
+============
+SQLITE
+Display format for timestamp (ts) inside DB Browser
+- `strftime('%m/%d/%Y %I:%M:%S %p', "ts", 'unixepoch', 'localtime')`
+
+## New schema additions (head detection)
+
+`db.py` now includes two new tables so the design supports both strategies:
+
+- Occasional head detection (for example every 30s), then faster checks (for example every 5s) during high alert.
+- No occasional checks, only run head detection when high alert is active.
+
+### 1) head_detection_runs
+
+Tracks each run session (when/why the head detector was executed).
+
+- `id`
+- `started_ts`
+- `ended_ts`
+- `mode` (for example: `scheduled`, `alert_burst`)
+- `interval_seconds` (for example: `30`, `5`)
+- `trigger_type` (for example: `timer`, `high_alert`, `manual`)
+- `trigger_detection_event_id` (optional link to `detection_events.id`)
+- `status` (for example: `running`, `completed`, `failed`)
+- `meta` (optional JSON text)
+
+### 2) head_detection_results
+
+Stores each output produced by a run.
+
+- `id`
+- `run_id` (required FK to `head_detection_runs.id`)
+- `ts`
+- `sensor_reading_id` (optional FK to `sensor_readings.id`)
+- `headcount_conf30`
+- `headcount_conf60`
+- `result_label` (optional)
+- `meta` (optional JSON text)
+
+### New helper functions in db.py
+
+- `insert_head_detection_run(...)`
+- `complete_head_detection_run(...)`
+- `insert_head_detection_result(...)`
+- `fetch_recent_head_detection_results(...)`
+- `prune_head_detection_results_older_than(...)`
+
+These additions are backward-compatible with existing sensor logging functions.
+
+## Minimal usage flow for head detection
+
+1. Insert a sensor reading -> keep returned `sensor_reading_id`.
+2. Create a run with `insert_head_detection_run(...)` -> get `run_id`.
+3. Insert one or more results with `insert_head_detection_result(..., run_id=..., sensor_reading_id=...)`.
+4. Mark run complete with `complete_head_detection_run(...)`.
