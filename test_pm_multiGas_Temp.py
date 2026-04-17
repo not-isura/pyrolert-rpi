@@ -64,6 +64,42 @@ def GAS_Sensors_setup():
 
     return gas_CO, gas_O2, gas_NO2
 
+def Temp_Sensor_setup():
+    #these tow lines mount the device:
+    os.system('modprobe w1-gpio')
+    os.system('modprobe w1-therm')
+    
+    base_dir = '/sys/bus/w1/devices/'
+    device_path = glob.glob(base_dir + '28*')[0] #get file path of sensor
+    rom = device_path.split('/')[-1] #get rom name
+
+    sleep(0.5)
+    print('Temperature Device ROM: '+ rom)
+    return device_path
+
+def read_temp_raw(device_path):
+    with open(device_path +'/w1_slave','r') as f:
+        valid, temp = f.readlines()
+    return valid, temp
+ 
+def read_temp(device_path):
+    valid, temp = read_temp_raw(device_path)
+
+    while 'YES' not in valid:
+        sleep(0.2)
+        valid, temp = read_temp_raw(device_path)
+
+    pos = temp.index('t=')
+    if pos != -1:
+        #read the temperature .
+        temp_string = temp[pos+2:]
+        temp_c = float(temp_string)/1000.0 
+        #temp_f = temp_c * (9.0 / 5.0) + 32.0
+        #return temp_c, temp_f
+        return round(temp_c, 2)
+
+
+
 if __name__ == "__main__":
     # Record start time
     start_time = datetime.now()
@@ -73,6 +109,7 @@ if __name__ == "__main__":
     
     pm_sensor = PM_Sensor_setup()
     gas_CO, gas_O2, gas_NO2 = GAS_Sensors_setup()
+    temp_dev_path = Temp_Sensor_setup
 
     ctr = 0
     error_count = 0
@@ -124,41 +161,23 @@ if __name__ == "__main__":
             #    concentration_O2 = 0
             if concentration_NO2 < 0.01:
                 concentration_NO2 = 0
-            
 
+            temp_c= read_temp(temp_dev_path)
+            
             # PRINT READINGS ================================
             print("----------------------------")
             print("Reading No.", ctr)
             ctr += 1
 
-            print("Gas:", gas_CO.gastype)
-            print("Concentration:", concentration_CO, gas_CO.gasunits)
-            print("Temperature:", gas_CO.temp, "°C")
-            
-            print("Gas:", gas_O2.gastype)
-            print("Concentration:", concentration_O2, gas_O2.gasunits)
-            print("Temperature:", gas_O2.temp, "°C")
-            
-            print("Gas:", gas_NO2.gastype)
-            print("Concentration:", concentration_NO2, gas_NO2.gasunits)
-            print("Temperature:", gas_NO2.temp, "°C")  
+            print(gas_CO.gastype, ":", concentration_CO, gas_CO.gasunits)
+            print(gas_O2.gastype, ":", concentration_O2, gas_O2.gasunits)
+            print(gas_NO2.gastype, ":", concentration_NO2, gas_NO2.gasunits)
+            print("Room Temperature:", temp_c)
 
-            # Print PM sensor data in formatted way
-            print("\n=== PM Sensor Data ===")
-            print("Mass Density:")
-            print(f"  PM 1.0:  {pm_mass['pm1.0']:.3f} {mass_unit}")
             print(f"  PM 2.5:  {pm_mass['pm2.5']:.3f} {mass_unit}")
-            print(f"  PM 4.0:  {pm_mass['pm4.0']:.3f} {mass_unit}")
-            print(f"  PM 10:   {pm_mass['pm10']:.3f} {mass_unit}")
-            
-            print("\nParticle Count:")
-            print(f"  PM 0.5:  {pm_count['pm0.5']:.3f} {count_unit}")
-            print(f"  PM 1.0:  {pm_count['pm1.0']:.3f} {count_unit}")
             print(f"  PM 2.5:  {pm_count['pm2.5']:.3f} {count_unit}")
-            print(f"  PM 4.0:  {pm_count['pm4.0']:.3f} {count_unit}")
-            print(f"  PM 10:   {pm_count['pm10']:.3f} {count_unit}")
-            
             print(f"\nParticle Size: {particle_size:.3f} {size_unit}")
+
             print(f"Timestamp: {timestamp}")
 
             sleep(1)
