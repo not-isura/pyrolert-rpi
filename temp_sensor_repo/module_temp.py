@@ -15,7 +15,7 @@ def init_temp():
 
     sleep(0.5)
     print('Temperature Device ROM: '+ rom)
-    return device_path, rom
+    return device_path
 
 def read_temp_raw(device_path):
     with open(device_path +'/w1_slave','r') as f:
@@ -27,7 +27,7 @@ def read_temp(device_path):
 
     while 'YES' not in valid:
         sleep(0.2)
-        valid, temp = read_temp_raw()
+        valid, temp = read_temp_raw(device_path)
 
     pos = temp.index('t=')
     if pos != -1:
