@@ -111,7 +111,7 @@ if __name__ == "__main__":
     
     pm_sensor = PM_Sensor_setup()
     gas_CO, gas_O2, gas_NO2 = GAS_Sensors_setup()
-    temp_dev_path = Temp_Sensor_setup
+    temp_dev_path = Temp_Sensor_setup()
 
     ctr = 0
     error_count = 0
