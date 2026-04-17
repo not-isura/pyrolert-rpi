@@ -34,13 +34,15 @@ def read_temp(device_path):
         #read the temperature .
         temp_string = temp[pos+2:]
         temp_c = float(temp_string)/1000.0 
-        temp_f = temp_c * (9.0 / 5.0) + 32.0
-        return temp_c, temp_f
+        #temp_f = temp_c * (9.0 / 5.0) + 32.0
+        #return temp_c, temp_f
+        return round(temp_c, 2)
 
 temp_dev_path = init_temp()
 
 while True:
-    c, f = read_temp(temp_dev_path)
-    print('C={:,.3f} F={:,.3f}'.format(c, f))
+    temp_c= read_temp(temp_dev_path)
+    #print('C={:,.3f} F={:,.3f}'.format(c, f))
+    print(temp_c)
     sleep(1)
 
