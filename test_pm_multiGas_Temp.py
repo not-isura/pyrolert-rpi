@@ -152,8 +152,13 @@ def Temp_Sensor_setup():
     return device_path
 
 def read_temp_raw(device_path):
-    with open(device_path +'/w1_slave','r') as f:
-        valid, temp = f.readlines()
+    with open(device_path + '/w1_slave', 'r') as f:
+        lines = f.readlines()
+    
+    if len(lines) < 2:
+        raise ValueError(f"Unexpected sensor output: {lines}")
+    
+    valid, temp = lines
     return valid, temp
  
 def read_temp(device_path):
