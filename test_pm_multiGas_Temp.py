@@ -1,5 +1,4 @@
 import sys
-import json
 import time
 import glob
 import os
@@ -7,7 +6,10 @@ from time import sleep
 from datetime import datetime
 
 from sps30 import SPS30
-from DFRobot_MultiGasSensor import *
+from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C
+
+GAS_SETUP_TIMEOUT_S = 10
+TEMP_READ_TIMEOUT_S = 5
 
 def PM_Sensor_setup():
     sleep(0.5)
@@ -45,21 +47,21 @@ def PM_Sensor_measure(pm_sensor):
     }
     
     # Extract particle count values
-    particle_count = pm_data["sensor_data"]["particle_count"]
-    pm_count = {
-        "pm0.5": particle_count["pm0.5"],
-        "pm1.0": particle_count["pm1.0"],
-        "pm2.5": particle_count["pm2.5"],
-        "pm4.0": particle_count["pm4.0"],
-        "pm10": particle_count["pm10"]
-    }
+    # particle_count = pm_data["sensor_data"]["particle_count"]
+    # pm_count = {
+    #     "pm0.5": particle_count["pm0.5"],
+    #     "pm1.0": particle_count["pm1.0"],
+    #     "pm2.5": particle_count["pm2.5"],
+    #     "pm4.0": particle_count["pm4.0"],
+    #     "pm10": particle_count["pm10"]
+    # }
     
     # Extract other values
-    particle_size = pm_data["sensor_data"]["particle_size"]
+    # particle_size = pm_data["sensor_data"]["particle_size"]
     mass_unit = pm_data["sensor_data"]["mass_density_unit"]
-    count_unit = pm_data["sensor_data"]["particle_count_unit"]
-    size_unit = pm_data["sensor_data"]["particle_size_unit"]
-    timestamp = pm_data["timestamp"]
+    # count_unit = pm_data["sensor_data"]["particle_count_unit"]
+    # size_unit = pm_data["sensor_data"]["particle_size_unit"]
+    # timestamp = pm_data["timestamp"]
 
     return pm_mass["pm2.5"], mass_unit
 
@@ -70,21 +72,30 @@ def GAS_Sensors_setup():
 
     # Wait until passive mode is successfully set
     print("connecting CO")
+    start_wait = time.monotonic()
     while not gas_CO.change_acquire_mode(gas_CO.PASSIVITY):
+        if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
+            raise TimeoutError("CO sensor timed out entering passive mode")
         print("Waiting for CO sensor to enter passive mode...")
         sleep(0.1)
     print("success CO")
     sleep(0.1)
 
     print("connecting O2")
+    start_wait = time.monotonic()
     while not gas_O2.change_acquire_mode(gas_O2.PASSIVITY):
+        if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
+            raise TimeoutError("O2 sensor timed out entering passive mode")
         print("Waiting for O2 sensor to enter passive mode...")
         sleep(0.1)
     print("success O2")
     sleep(0.1)
 
     print("connecting NO2")
+    start_wait = time.monotonic()
     while not gas_NO2.change_acquire_mode(gas_NO2.PASSIVITY):
+        if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
+            raise TimeoutError("NO2 sensor timed out entering passive mode")
         print("Waiting for NO2 sensor to enter passive mode...")
         sleep(0.1)
     sleep(1)
@@ -105,6 +116,23 @@ def GAS_Sensors_setup():
     print("ALL Gas Sensors connected and ready")
 
     return gas_CO, gas_O2, gas_NO2
+
+def GAS_measure(gas_CO, gas_O2, gas_NO2):
+    time.sleep(0.1)
+    concentration_CO = gas_CO.read_gas_concentration() # returns concentration (ppm)
+    time.sleep(0.1)
+    concentration_O2 = gas_O2.read_gas_concentration() # returns concentration (ppm)
+    time.sleep(0.1)
+    concentration_NO2 = gas_NO2.read_gas_concentration() # returns concentration (ppm)
+    time.sleep(0.1)
+    
+    # Gas Value correction for normal conditions 
+    if concentration_CO < 0.1:
+        concentration_CO = 0
+    if concentration_NO2 < 0.1:
+        concentration_NO2 = 0
+
+    return concentration_CO, concentration_O2, concentration_NO2
 
 def Temp_Sensor_setup():
     #these tow lines mount the device:
@@ -128,7 +156,10 @@ def read_temp(device_path):
     valid, temp = read_temp_raw(device_path)
     temp_unit = "°C"
 
+    start_wait = time.monotonic()
     while 'YES' not in valid:
+        if time.monotonic() - start_wait >= TEMP_READ_TIMEOUT_S:
+            raise TimeoutError("Temperature sensor timed out waiting for valid reading")
         sleep(0.2)
         valid, temp = read_temp_raw(device_path)
 
@@ -141,7 +172,14 @@ def read_temp(device_path):
         #return temp_c, temp_f
         return round(temp_c, 2), temp_unit
 
-
+def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp):
+    print("----------------------------")
+    print("Reading No.", ctr)
+    print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
+    print(f"{gas_O2.gastype}: {concentration_O2:.3f} {gas_O2.gasunits}")
+    print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
+    print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
+    print(f"Temp: {temp_c} {unit_Temp}")
 
 if __name__ == "__main__":
     # Record start time
@@ -177,30 +215,11 @@ if __name__ == "__main__":
             temp_c, unit_Temp= read_temp(temp_dev_path)
 
             # Read Gas Values (CO, O2, NO2)
-            time.sleep(0.1)
-            concentration_CO = gas_CO.read_gas_concentration() # returns concentration (ppm)
-            time.sleep(0.1)
-            concentration_O2 = gas_O2.read_gas_concentration() # returns concentration (ppm)
-            time.sleep(0.1)
-            concentration_NO2 = gas_NO2.read_gas_concentration() # returns concentration (ppm)
-            time.sleep(0.1)
-            
-            # Gas Value correction for normal conditions 
-            if concentration_CO < 0.1:
-                concentration_CO = 0
-            if concentration_NO2 < 0.1:
-                concentration_NO2 = 0
+            concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_CO, gas_O2, gas_NO2)
             
             # PRINT READINGS ================================
-            print("----------------------------")
-            print("Reading No.", ctr)
             ctr += 1
-
-            print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
-            print(f"{gas_O2.gastype}: {concentration_O2:.3f} {gas_O2.gasunits}")
-            print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
-            print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
-            print(f"Temp: {temp_c} {unit_Temp}")
+            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp)
             sleep(1)
 
         except KeyboardInterrupt:
