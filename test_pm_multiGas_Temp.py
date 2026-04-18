@@ -10,16 +10,24 @@ from sps30 import SPS30
 from DFRobot_MultiGasSensor import *
 
 def PM_Sensor_setup():
+    sleep(0.5)
     pm_sensor = SPS30()
+    sleep(0.1)
+    pm_sensor.start_measurement()
+    sleep(0.5)
     print(f"Firmware version: {pm_sensor.firmware_version()}")
     print(f"Product type: {pm_sensor.product_type()}")
     print(f"Serial number: {pm_sensor.serial_number()}")
     print(f"Status register: {pm_sensor.read_status_register()}")
     print(f"Auto cleaning interval: {pm_sensor.read_auto_cleaning_interval()}s")
     print(f"Set auto cleaning interval: {pm_sensor.write_auto_cleaning_interval_days(0)}s")
-    pm_sensor.start_measurement()
 
     print("PM Sensor connected and ready")
+
+    print("Startup Cleaning: Wait for 10s")
+    pm_sensor.start_fan_cleaning()
+    sleep(10)
+    print("Done Fan Cleaning")
 
     return pm_sensor
 
