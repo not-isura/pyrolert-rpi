@@ -33,35 +33,35 @@ def PM_Sensor_setup():
 
 def PM_Sensor_measure(pm_sensor):
     # Get PM sensor measurement as dictionary
-        pm_data = pm_sensor.get_measurement()
-        
-        # Extract mass density values
-        mass_density = pm_data["sensor_data"]["mass_density"]
-        pm_mass = {
-            "pm1.0": mass_density["pm1.0"],
-            "pm2.5": mass_density["pm2.5"],
-            "pm4.0": mass_density["pm4.0"],
-            "pm10": mass_density["pm10"]
-        }
-        
-        # Extract particle count values
-        particle_count = pm_data["sensor_data"]["particle_count"]
-        pm_count = {
-            "pm0.5": particle_count["pm0.5"],
-            "pm1.0": particle_count["pm1.0"],
-            "pm2.5": particle_count["pm2.5"],
-            "pm4.0": particle_count["pm4.0"],
-            "pm10": particle_count["pm10"]
-        }
-        
-        # Extract other values
-        particle_size = pm_data["sensor_data"]["particle_size"]
-        mass_unit = pm_data["sensor_data"]["mass_density_unit"]
-        count_unit = pm_data["sensor_data"]["particle_count_unit"]
-        size_unit = pm_data["sensor_data"]["particle_size_unit"]
-        timestamp = pm_data["timestamp"]
+    pm_data = pm_sensor.get_measurement()
+    
+    # Extract mass density values
+    mass_density = pm_data["sensor_data"]["mass_density"]
+    pm_mass = {
+        "pm1.0": mass_density["pm1.0"],
+        "pm2.5": mass_density["pm2.5"],
+        "pm4.0": mass_density["pm4.0"],
+        "pm10": mass_density["pm10"]
+    }
+    
+    # Extract particle count values
+    particle_count = pm_data["sensor_data"]["particle_count"]
+    pm_count = {
+        "pm0.5": particle_count["pm0.5"],
+        "pm1.0": particle_count["pm1.0"],
+        "pm2.5": particle_count["pm2.5"],
+        "pm4.0": particle_count["pm4.0"],
+        "pm10": particle_count["pm10"]
+    }
+    
+    # Extract other values
+    particle_size = pm_data["sensor_data"]["particle_size"]
+    mass_unit = pm_data["sensor_data"]["mass_density_unit"]
+    count_unit = pm_data["sensor_data"]["particle_count_unit"]
+    size_unit = pm_data["sensor_data"]["particle_size_unit"]
+    timestamp = pm_data["timestamp"]
 
-        return pm_mass["pm2.5"], mass_unit
+    return pm_mass["pm2.5"], mass_unit
 
 def GAS_Sensors_setup():
     gas_CO = DFRobot_MultiGasSensor_I2C(1, 0x74)
@@ -196,9 +196,9 @@ if __name__ == "__main__":
             print("Reading No.", ctr)
             ctr += 1
 
-            print(f"{gas_CO.gastype}: {concentration_CO:..3f} {gas_CO.gasunits}")
-            print(f"{gas_O2.gastype}: {concentration_O2:..3f} {gas_O2.gasunits}")
-            print(f"{gas_NO2.gastype}: {concentration_NO2:..3f} {gas_NO2.gasunits}")
+            print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
+            print(f"{gas_O2.gastype}: {concentration_O2:.3f} {gas_O2.gasunits}")
+            print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
             print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
             sleep(1)
 
