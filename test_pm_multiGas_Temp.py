@@ -167,14 +167,16 @@ def read_temp(device_path):
         sleep(0.2)
         valid, temp = read_temp_raw(device_path)
 
-    pos = temp.index('t=')
-    if pos != -1:
-        #read the temperature .
-        temp_string = temp[pos+2:]
-        temp_c = float(temp_string)/1000.0 
-        #temp_f = temp_c * (9.0 / 5.0) + 32.0
-        #return temp_c, temp_f
-        return round(temp_c, 2), temp_unit
+    pos = temp.find('t=')
+    if pos == -1:
+        raise ValueError(f"Malformed temperature sensor payload: {temp.strip()}")
+
+    #read the temperature .
+    temp_string = temp[pos+2:]
+    temp_c = float(temp_string)/1000.0 
+    #temp_f = temp_c * (9.0 / 5.0) + 32.0
+    #return temp_c, temp_f
+    return round(temp_c, 2), temp_unit
 
 def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp):
     print("----------------------------")
