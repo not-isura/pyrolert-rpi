@@ -31,6 +31,38 @@ def PM_Sensor_setup():
 
     return pm_sensor
 
+def PM_Sensor_measure(pm_sensor):
+    # Get PM sensor measurement as dictionary
+        pm_data = pm_sensor.get_measurement()
+        
+        # Extract mass density values
+        mass_density = pm_data["sensor_data"]["mass_density"]
+        pm_mass = {
+            "pm1.0": mass_density["pm1.0"],
+            "pm2.5": mass_density["pm2.5"],
+            "pm4.0": mass_density["pm4.0"],
+            "pm10": mass_density["pm10"]
+        }
+        
+        # Extract particle count values
+        particle_count = pm_data["sensor_data"]["particle_count"]
+        pm_count = {
+            "pm0.5": particle_count["pm0.5"],
+            "pm1.0": particle_count["pm1.0"],
+            "pm2.5": particle_count["pm2.5"],
+            "pm4.0": particle_count["pm4.0"],
+            "pm10": particle_count["pm10"]
+        }
+        
+        # Extract other values
+        particle_size = pm_data["sensor_data"]["particle_size"]
+        mass_unit = pm_data["sensor_data"]["mass_density_unit"]
+        count_unit = pm_data["sensor_data"]["particle_count_unit"]
+        size_unit = pm_data["sensor_data"]["particle_size_unit"]
+        timestamp = pm_data["timestamp"]
+
+        return pm_mass["pm2.5"], mass_unit
+
 def GAS_Sensors_setup():
     gas_CO = DFRobot_MultiGasSensor_I2C(1, 0x74)
     gas_O2 = DFRobot_MultiGasSensor_I2C(1, 0x75)
@@ -94,6 +126,7 @@ def read_temp_raw(device_path):
  
 def read_temp(device_path):
     valid, temp = read_temp_raw(device_path)
+    temp_unit = "°C"
 
     while 'YES' not in valid:
         sleep(0.2)
@@ -106,7 +139,7 @@ def read_temp(device_path):
         temp_c = float(temp_string)/1000.0 
         #temp_f = temp_c * (9.0 / 5.0) + 32.0
         #return temp_c, temp_f
-        return round(temp_c, 2)
+        return round(temp_c, 2), temp_unit
 
 
 
@@ -116,10 +149,19 @@ if __name__ == "__main__":
     print(f"\n{'='*50}")
     print(f"Session started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}\n")
-    
+
     pm_sensor = PM_Sensor_setup()
     gas_CO, gas_O2, gas_NO2 = GAS_Sensors_setup()
     temp_dev_path = Temp_Sensor_setup()
+
+    """
+    Variables for Sensor Readings
+    - volume_PM
+    - temp_c
+    - concentration_CO
+    - concentration_O2
+    - concentration_NO2
+    """
 
     ctr = 0
     error_count = 0
@@ -128,68 +170,36 @@ if __name__ == "__main__":
     
     while True:
         try:
-            # Get PM sensor measurement as dictionary
-            pm_data = pm_sensor.get_measurement()
-            
-            # Extract mass density values
-            mass_density = pm_data["sensor_data"]["mass_density"]
-            pm_mass = {
-                "pm1.0": mass_density["pm1.0"],
-                "pm2.5": mass_density["pm2.5"],
-                "pm4.0": mass_density["pm4.0"],
-                "pm10": mass_density["pm10"]
-            }
-            
-            # Extract particle count values
-            particle_count = pm_data["sensor_data"]["particle_count"]
-            pm_count = {
-                "pm0.5": particle_count["pm0.5"],
-                "pm1.0": particle_count["pm1.0"],
-                "pm2.5": particle_count["pm2.5"],
-                "pm4.0": particle_count["pm4.0"],
-                "pm10": particle_count["pm10"]
-            }
-            
-            # Extract other values
-            particle_size = pm_data["sensor_data"]["particle_size"]
-            mass_unit = pm_data["sensor_data"]["mass_density_unit"]
-            count_unit = pm_data["sensor_data"]["particle_count_unit"]
-            size_unit = pm_data["sensor_data"]["particle_size_unit"]
-            timestamp = pm_data["timestamp"]
-            
-            time.sleep(0.1)
-            concentration_CO = gas_CO.read_gas_concentration()
-            time.sleep(0.1)
-            concentration_O2 = gas_O2.read_gas_concentration()
-            time.sleep(0.1)
-            concentration_NO2 = gas_NO2.read_gas_concentration()
-            time.sleep(0.1)
-            
-            if concentration_CO < 0.01:
-                concentration_CO = 0
-            #if concentration_O2 < 0:
-            #    concentration_O2 = 0
-            if concentration_NO2 < 0.01:
-                concentration_NO2 = 0
+            # Read PM Values
+            volume_PM, unit_PM = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
 
-            temp_c= read_temp(temp_dev_path)
+            # Read Temp Values
+            temp_c, unit_Temp= read_temp(temp_dev_path)
+
+            # Read Gas Values (CO, O2, NO2)
+            time.sleep(0.1)
+            concentration_CO = gas_CO.read_gas_concentration() # returns concentration (ppm)
+            time.sleep(0.1)
+            concentration_O2 = gas_O2.read_gas_concentration() # returns concentration (ppm)
+            time.sleep(0.1)
+            concentration_NO2 = gas_NO2.read_gas_concentration() # returns concentration (ppm)
+            time.sleep(0.1)
+            
+            # Gas Value correction for normal conditions 
+            if concentration_CO < 0.1:
+                concentration_CO = 0
+            if concentration_NO2 < 0.1:
+                concentration_NO2 = 0
             
             # PRINT READINGS ================================
             print("----------------------------")
             print("Reading No.", ctr)
             ctr += 1
 
-            print(gas_CO.gastype, ":", concentration_CO, gas_CO.gasunits)
-            print(gas_O2.gastype, ":", concentration_O2, gas_O2.gasunits)
-            print(gas_NO2.gastype, ":", concentration_NO2, gas_NO2.gasunits)
-            print("Room Temperature:", temp_c)
-
-            print(f"  PM 2.5:  {pm_mass['pm2.5']:.3f} {mass_unit}")
-            print(f"  PM 2.5:  {pm_count['pm2.5']:.3f} {count_unit}")
-            print(f"\nParticle Size: {particle_size:.3f} {size_unit}")
-
-            print(f"Timestamp: {timestamp}")
-
+            print(f"{gas_CO.gastype}: {concentration_CO:..3f} {gas_CO.gasunits}")
+            print(f"{gas_O2.gastype}: {concentration_O2:..3f} {gas_O2.gasunits}")
+            print(f"{gas_NO2.gastype}: {concentration_NO2:..3f} {gas_NO2.gasunits}")
+            print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
             sleep(1)
 
         except KeyboardInterrupt:
