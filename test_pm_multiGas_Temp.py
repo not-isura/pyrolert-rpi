@@ -200,6 +200,7 @@ if __name__ == "__main__":
             print(f"{gas_O2.gastype}: {concentration_O2:.3f} {gas_O2.gasunits}")
             print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
             print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
+            print(f"Temp: {temp_c} {unit_Temp}")
             sleep(1)
 
         except KeyboardInterrupt:
