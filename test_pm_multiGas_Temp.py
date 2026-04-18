@@ -140,7 +140,11 @@ def Temp_Sensor_setup():
     os.system('modprobe w1-therm')
     
     base_dir = '/sys/bus/w1/devices/'
-    device_path = glob.glob(base_dir + '28*')[0] #get file path of sensor
+    devices = glob.glob(base_dir + '28*')
+    if not devices:
+        raise RuntimeError("No DS18B20 temperature sensor found under /sys/bus/w1/devices/")
+
+    device_path = devices[0] #get file path of sensor
     rom = device_path.split('/')[-1] #get rom name
 
     sleep(0.5)
