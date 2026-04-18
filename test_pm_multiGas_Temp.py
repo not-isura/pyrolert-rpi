@@ -192,6 +192,38 @@ def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_
     print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
     print(f"Temp: {temp_c} {unit_Temp}")
 
+def write_session_log(start_time, end_time, duration, status, ctr, error_count, error_log):
+    with open('session_log.txt', 'a') as log_file:
+        log_file.write(f"\n{'='*50}\n")
+        log_file.write(f"Session Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"Session End:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"Duration:      {duration}\n")
+        log_file.write(f"Status:        {status}\n")
+        log_file.write(f"Total readings: {ctr}\n")
+        log_file.write(f"Total errors:   {error_count}\n")
+        if error_log:
+            log_file.write(f"\nErrors encountered:\n")
+            for i, err in enumerate(error_log, 1):
+                log_file.write(f"  {i}. [{err['time']}] {err['error']}\n")
+        log_file.write(f"{'='*50}\n")
+
+def finalize_session(pm_sensor, start_time, status, ctr, error_count, error_log):
+    pm_sensor.stop_measurement()
+
+    end_time = datetime.now()
+    duration = end_time - start_time
+
+    print(f"\n{'='*50}")
+    print(f"Session ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Duration: {duration}")
+    print(f"Total errors encountered: {error_count}")
+    print(f"{'='*50}\n")
+
+    write_session_log(start_time, end_time, duration, status, ctr, error_count, error_log)
+
+    print("Session logged to session_log.txt")
+    sys.exit()
+
 if __name__ == "__main__":
     # Record start time
     start_time = datetime.now()
@@ -235,35 +267,7 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             print("\n\nStopping measurement...")
-            pm_sensor.stop_measurement()
-            
-            # Record end time
-            end_time = datetime.now()
-            duration = end_time - start_time
-            
-            print(f"\n{'='*50}")
-            print(f"Session ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"Duration: {duration}")
-            print(f"Total errors encountered: {error_count}")
-            print(f"{'='*50}\n")
-            
-            # Save to log file
-            with open('session_log.txt', 'a') as log_file:
-                log_file.write(f"\n{'='*50}\n")
-                log_file.write(f"Session Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                log_file.write(f"Session End:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                log_file.write(f"Duration:      {duration}\n")
-                log_file.write(f"Status:        User interrupted\n")
-                log_file.write(f"Total readings: {ctr}\n")
-                log_file.write(f"Total errors:   {error_count}\n")
-                if error_log:
-                    log_file.write(f"\nErrors encountered:\n")
-                    for i, err in enumerate(error_log, 1):
-                        log_file.write(f"  {i}. [{err['time']}] {err['error']}\n")
-                log_file.write(f"{'='*50}\n")
-            
-            print("Session logged to session_log.txt")
-            sys.exit()
+            finalize_session(pm_sensor, start_time, "User interrupted", ctr, error_count, error_log)
         
         except Exception as e:
             # Record error with timestamp
@@ -280,34 +284,14 @@ if __name__ == "__main__":
             # Check if max errors reached
             if error_count >= max_errors:
                 print(f"\nMaximum error limit ({max_errors}) reached. Stopping...")
-                pm_sensor.stop_measurement()
-                
-                # Record end time
-                end_time = datetime.now()
-                duration = end_time - start_time
-                
-                print(f"\n{'='*50}")
-                print(f"Session ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                print(f"Duration: {duration}")
-                print(f"Total errors: {error_count}")
-                print(f"{'='*50}\n")
-                
-                # Save to log file
-                with open('session_log.txt', 'a') as log_file:
-                    log_file.write(f"\n{'='*50}\n")
-                    log_file.write(f"Session Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    log_file.write(f"Session End:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    log_file.write(f"Duration:      {duration}\n")
-                    log_file.write(f"Status:        Stopped - Max errors reached ({max_errors})\n")
-                    log_file.write(f"Total readings: {ctr}\n")
-                    log_file.write(f"Total errors:   {error_count}\n")
-                    log_file.write(f"\nErrors encountered:\n")
-                    for i, err in enumerate(error_log, 1):
-                        log_file.write(f"  {i}. [{err['time']}] {err['error']}\n")
-                    log_file.write(f"{'='*50}\n")
-                
-                print("Session logged to session_log.txt")
-                sys.exit()
+                finalize_session(
+                    pm_sensor,
+                    start_time,
+                    f"Stopped - Max errors reached ({max_errors})",
+                    ctr,
+                    error_count,
+                    error_log,
+                )
             else:
                 print(f"Continuing... ({max_errors - error_count} errors remaining)\n")
                 sleep(2)  # Wait a bit before continuing
