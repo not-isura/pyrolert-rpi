@@ -255,11 +255,11 @@ if __name__ == "__main__":
     
     while True:
         try:
-            # Read PM Values
-            volume_PM, unit_PM = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
-            if volume_PM is None:
+            # Read PM Values                
+            pm_result = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
+            if pm_result is None:
                 raise ValueError("volume_PM is None: sensor may be disconnected or returning invalid data")
-
+            volume_PM, unit_PM = pm_result
 
             # Read Temp Values
             temp_c, unit_Temp= read_temp(temp_dev_path)
