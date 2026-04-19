@@ -182,6 +182,12 @@ def read_temp(device_path):
 
     #read the temperature .
     temp_string = temp[pos+2:]
+
+    raw_value = int(temp_string)
+    # DS18B20 returns exactly 0 raw when disconnected
+    if raw_value == 0:
+        raise RuntimeError("Temperature sensor returned raw 0 — sensor may be disconnected or faulty")
+
     temp_c = float(temp_string)/1000.0 
     #temp_f = temp_c * (9.0 / 5.0) + 32.0
     #return temp_c, temp_f
@@ -212,7 +218,7 @@ def write_session_log(start_time, end_time, duration, status, ctr, error_count, 
         log_file.write(f"{'='*50}\n")
 
 def finalize_session(pm_sensor, start_time, status, ctr, error_count, error_log):
-    pm_sensor.stop_measurement()
+    # pm_sensor.stop_measurement()
 
     end_time = datetime.now()
     duration = end_time - start_time
