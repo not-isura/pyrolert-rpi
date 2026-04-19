@@ -364,8 +364,8 @@ class SPS30:
             except OSError as e:
                 if self.logger:
                     self.logger.error(f"I2C device error (sensor disconnected?): {e}")
-                else:
-                    print(f"I2C device error (sensor disconnected?): {e}")
+                # else:
+                    # print(f"I2C device error (sensor disconnected?): {e}")
 
                 # Flush stale data and signal failure with empty dict
                 while not self.__data.empty():
