@@ -361,6 +361,17 @@ class SPS30:
                 self.stop_measurement()
                 sys.exit()
 
+            except OSError as e:
+                if self.logger:
+                    self.logger.error(f"I2C device error (sensor disconnected?): {e}")
+                else:
+                    print(f"I2C device error (sensor disconnected?): {e}")
+
+                # Flush stale data and signal failure with empty dict
+                while not self.__data.empty():
+                    self.__data.get()
+                self.__data.put({})  # caller sees {} = no valid data
+
             except Exception as e:
                 if self.logger:
                     self.logger.warning(f"{type(e).__name__}: {e}")
