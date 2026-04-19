@@ -6,7 +6,7 @@ from time import sleep
 from datetime import datetime
 
 from sps30 import SPS30
-from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C
+from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C, recvbuf
 
 GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
@@ -123,11 +123,20 @@ def GAS_Sensors_setup():
 
 def GAS_measure(gas_CO, gas_O2, gas_NO2):
     time.sleep(0.1)
-    concentration_CO = gas_CO.read_gas_concentration() # returns concentration (ppm)
+    concentration_CO = gas_CO.read_gas_concentration()
+    if all(b == 0 for b in recvbuf):
+        raise RuntimeError("CO sensor returned all zeros — sensor may be disconnected")
+    
     time.sleep(0.1)
-    concentration_O2 = gas_O2.read_gas_concentration() # returns concentration (ppm)
+    concentration_O2 = gas_O2.read_gas_concentration()
+    if all(b == 0 for b in recvbuf):
+        raise RuntimeError("O2 sensor returned all zeros — sensor may be disconnected")
+    
     time.sleep(0.1)
-    concentration_NO2 = gas_NO2.read_gas_concentration() # returns concentration (ppm)
+    concentration_NO2 = gas_NO2.read_gas_concentration()
+    if all(b == 0 for b in recvbuf):
+        raise RuntimeError("NO2 sensor returned all zeros — sensor may be disconnected")
+
     time.sleep(0.1)
     
     # Gas Value correction for normal conditions 
