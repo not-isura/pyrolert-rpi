@@ -351,7 +351,7 @@ if __name__ == "__main__":
             
 
             ### SMOKE DETECTION LOGIC =========================
-            detection_result = mock_detection_result(
+            detection_result = detection_result(
                 gas_co=float(concentration_CO),
                 gas_no2=float(concentration_NO2),
                 gas_o2=float(concentration_O2),
