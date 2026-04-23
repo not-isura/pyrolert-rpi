@@ -13,6 +13,14 @@ GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
 SETUP_MAX_RETRIES = 5
 
+def detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_c_1min = 0):
+    temp_RoC = temp_c - temp_c_1min
+    if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150)
+        return "High Alert"
+    if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90)
+        return "Warning"
+    return "Normal"
+
 def mock_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c):
     """Simple placeholder logic for detection result; tune thresholds later."""
     if pm25 >= 55.0 or gas_co >= 10.0 or gas_no2 >= 0.20:
