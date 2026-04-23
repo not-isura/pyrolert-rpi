@@ -1,8 +1,12 @@
 /trash
-/__pycache__
+*__pycache__
 /test_db/__pycache__
 /test_db/.pytest_cache
 /test_db/__init__.py
 /test_db/db.sqlite
 
+session_log.txt
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
