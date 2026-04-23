@@ -358,7 +358,6 @@ if __name__ == "__main__":
                 gas_o2=float(concentration_O2),
                 pm25=volume_PM,
                 temp_c=temp_c,
-                0
             )
 
             ### DATABASE SAVING ===============================
