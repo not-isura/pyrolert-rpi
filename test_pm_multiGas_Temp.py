@@ -81,6 +81,8 @@ def GAS_Sensors_setup():
     while not gas_CO.change_acquire_mode(gas_CO.PASSIVITY):
         if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
             raise TimeoutError("CO sensor timed out entering passive mode")
+        if all(b == 0 for b in recvbuf):
+            raise RuntimeError("CO sensor returned all zeros — sensor may be disconnected")
         print("Waiting for CO sensor to enter passive mode...")
         sleep(0.1)
     print("success CO")
@@ -91,6 +93,8 @@ def GAS_Sensors_setup():
     while not gas_O2.change_acquire_mode(gas_O2.PASSIVITY):
         if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
             raise TimeoutError("O2 sensor timed out entering passive mode")
+        if all(b == 0 for b in recvbuf):
+            raise RuntimeError("O2 sensor returned all zeros — sensor may be disconnected")
         print("Waiting for O2 sensor to enter passive mode...")
         sleep(0.1)
     print("success O2")
@@ -101,6 +105,8 @@ def GAS_Sensors_setup():
     while not gas_NO2.change_acquire_mode(gas_NO2.PASSIVITY):
         if time.monotonic() - start_wait >= GAS_SETUP_TIMEOUT_S:
             raise TimeoutError("NO2 sensor timed out entering passive mode")
+        if all(b == 0 for b in recvbuf):
+            raise RuntimeError("NO2 sensor returned all zeros — sensor may be disconnected")
         print("Waiting for NO2 sensor to enter passive mode...")
         sleep(0.1)
     #sleep(1)
