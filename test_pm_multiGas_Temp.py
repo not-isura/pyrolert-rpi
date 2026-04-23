@@ -10,6 +10,7 @@ from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C, recvbuf
 
 GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
+SETUP_MAX_RETRIES = 5
 
 def PM_Sensor_setup():
     sleep(0.5)
@@ -28,8 +29,8 @@ def PM_Sensor_setup():
 
     print("Startup Cleaning: Wait for 10s")
     pm_sensor.start_fan_cleaning()
-    sleep(10)
-    print("Done Fan Cleaning")
+    sleep(1)
+    print("Cleaning for 10s...")
 
     return pm_sensor
 
@@ -102,42 +103,41 @@ def GAS_Sensors_setup():
             raise TimeoutError("NO2 sensor timed out entering passive mode")
         print("Waiting for NO2 sensor to enter passive mode...")
         sleep(0.1)
-    sleep(1)
+    #sleep(1)
     print("success NO2")
 
-    sleep(1)
+    sleep(0.3)
 
     # Enable temperature compensation
     gas_CO.set_temp_compensation(gas_CO.ON)
-    sleep(0.5)  # short wait to stabilize
+    sleep(0.3)  # short wait to stabilize
 
     gas_O2.set_temp_compensation(gas_O2.ON)
-    sleep(0.5)  # short wait to stabilize
+    sleep(0.3)  # short wait to stabilize
 
     gas_NO2.set_temp_compensation(gas_NO2.ON)
-    sleep(0.5)  # short wait to stabilize
+    sleep(0.3)  # short wait to stabilize
 
     print("ALL Gas Sensors connected and ready")
 
     return gas_CO, gas_O2, gas_NO2
 
 def GAS_measure(gas_CO, gas_O2, gas_NO2):
-    time.sleep(0.1)
+    sleep(0.1)
     concentration_CO = gas_CO.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("CO sensor returned all zeros — sensor may be disconnected")
     
-    time.sleep(0.1)
+    sleep(0.1)
     concentration_O2 = gas_O2.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("O2 sensor returned all zeros — sensor may be disconnected")
     
-    time.sleep(0.1)
+    sleep(0.1)
     concentration_NO2 = gas_NO2.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("NO2 sensor returned all zeros — sensor may be disconnected")
-
-    time.sleep(0.1)
+    sleep(0.1)
     
     # Gas Value correction for normal conditions 
     if concentration_CO < 0.1:
@@ -243,6 +243,19 @@ def finalize_session(pm_sensor, start_time, status, ctr, error_count, error_log)
     print("Session logged to session_log.txt")
     sys.exit()
 
+def setup_with_retries(setup_name, setup_callable, max_retries=SETUP_MAX_RETRIES, retry_delay_s=1):
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = setup_callable()
+            if attempt > 1:
+                print(f"{setup_name} setup succeeded on attempt {attempt}/{max_retries}")
+            return result
+        except Exception as e:
+            print(f"[!] {setup_name} setup failed (attempt {attempt}/{max_retries}): {e}")
+            if attempt == max_retries:
+                raise RuntimeError(f"{setup_name} setup failed after {max_retries} attempts") from e
+            sleep(retry_delay_s)
+
 if __name__ == "__main__":
     # Record start time
     start_time = datetime.now()
@@ -250,9 +263,31 @@ if __name__ == "__main__":
     print(f"Session started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}\n")
 
-    pm_sensor = PM_Sensor_setup()
-    gas_CO, gas_O2, gas_NO2 = GAS_Sensors_setup()
-    temp_dev_path = Temp_Sensor_setup()
+    ctr = 0
+    error_count = 0
+    max_errors = 5
+    error_log = []  # Store errors with timestamps
+
+    try:
+        pm_sensor = setup_with_retries("PM sensor", PM_Sensor_setup)
+        gas_CO, gas_O2, gas_NO2 = setup_with_retries("Gas sensors", GAS_Sensors_setup)
+        temp_dev_path = setup_with_retries("Temperature sensor", Temp_Sensor_setup)
+    except Exception as e:
+        error_count += 1
+        error_info = {
+            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'error': str(e)
+        }
+        error_log.append(error_info)
+        print(f"\n[!] Startup failed: {e}")
+        finalize_session(
+            None,
+            start_time,
+            "Startup failed",
+            ctr,
+            error_count,
+            error_log,
+        )
 
     """
     Variables for Sensor Readings
@@ -263,11 +298,6 @@ if __name__ == "__main__":
     - concentration_NO2
     """
 
-    ctr = 0
-    error_count = 0
-    max_errors = 5
-    error_log = []  # Store errors with timestamps
-    
     while True:
         try:
             # Read PM Values                
