@@ -13,7 +13,7 @@ GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
 SETUP_MAX_RETRIES = 5
 
-def detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_c_1min = 0):
+def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_c_1min = 0):
     temp_RoC = temp_c - temp_c_1min
     if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
         return "High Alert"
@@ -254,7 +254,8 @@ def write_session_log(start_time, end_time, duration, status, ctr, error_count, 
         log_file.write(f"{'='*50}\n")
 
 def finalize_session(pm_sensor, start_time, status, ctr, error_count, error_log):
-    # pm_sensor.stop_measurement()
+    if pm_sensor is not None:
+        pm_sensor.stop_measurement()
 
     end_time = datetime.now()
     duration = end_time - start_time
@@ -318,7 +319,7 @@ if __name__ == "__main__":
         error_log.append(error_info)
         print(f"\n[!] Startup failed: {e}")
         finalize_session(
-            None,
+            pm_sensor if 'pm_sensor' in dir() else None,
             start_time,
             "Startup failed",
             ctr,
@@ -351,12 +352,13 @@ if __name__ == "__main__":
             
 
             ### SMOKE DETECTION LOGIC =========================
-            detection_result = detection_result(
+            detection_result = pyrolert_detection_result(
                 gas_co=float(concentration_CO),
                 gas_no2=float(concentration_NO2),
                 gas_o2=float(concentration_O2),
                 pm25=volume_PM,
                 temp_c=temp_c,
+                0
             )
 
             ### DATABASE SAVING ===============================
@@ -403,7 +405,7 @@ if __name__ == "__main__":
             print("\n\nStopping measurement...")
             if db_conn is not None:
                 db_conn.close()
-            finalize_session(pm_sensor, start_time, "User interrupted", ctr, error_count, error_log)
+            finalize_session(pm_sensor if 'pm_sensor' in dir() else None, start_time, "User interrupted", ctr, error_count, error_log)
         
         except Exception as e:
             # Record error with timestamp
@@ -423,7 +425,7 @@ if __name__ == "__main__":
                 if db_conn is not None:
                     db_conn.close()
                 finalize_session(
-                    pm_sensor,
+                    pm_sensor if 'pm_sensor' in dir() else None,
                     start_time,
                     f"Stopped - Max errors reached ({max_errors})",
                     ctr,
