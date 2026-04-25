@@ -150,21 +150,19 @@ def GAS_Sensors_setup():
     return gas_CO, gas_O2, gas_NO2
 
 def GAS_measure(gas_CO, gas_O2, gas_NO2):
-    sleep(0.1)
     concentration_CO = gas_CO.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("CO sensor returned all zeros — sensor may be disconnected")
     
-    sleep(0.1)
+    sleep(0.05)
     concentration_O2 = gas_O2.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("O2 sensor returned all zeros — sensor may be disconnected")
     
-    sleep(0.1)
+    sleep(0.05)
     concentration_NO2 = gas_NO2.read_gas_concentration()
     if all(b == 0 for b in recvbuf):
         raise RuntimeError("NO2 sensor returned all zeros — sensor may be disconnected")
-    sleep(0.1)
     
     # Gas Value correction for normal conditions 
     if concentration_CO < 0.1:
@@ -229,7 +227,7 @@ def read_temp(device_path):
     #return temp_c, temp_f
     return round(temp_c, 2), temp_unit
 
-def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp):
+def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts):
     print("----------------------------")
     print("Reading No.", ctr)
     print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
@@ -237,6 +235,7 @@ def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_
     print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
     print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
     print(f"Temp: {temp_c} {unit_Temp}")
+    print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')})")
 
 def write_session_log(start_time, end_time, duration, status, ctr, error_count, error_log):
     with open('session_log.txt', 'a') as log_file:
@@ -343,9 +342,14 @@ if __name__ == "__main__":
             if pm_result is None:
                 raise ValueError("volume_PM is None: sensor may be disconnected or returning invalid data")
             volume_PM, unit_PM = pm_result
+            # volume_PM = 0
+            # unit_PM = "disconnected"
 
             # Read Temp Values
             temp_c, unit_Temp= read_temp(temp_dev_path)
+
+            # temp_c = 0
+            # unit_Temp = "disconnected"
 
             # Read Gas Values (CO, O2, NO2)
             concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_CO, gas_O2, gas_NO2)
@@ -397,8 +401,8 @@ if __name__ == "__main__":
 
             # PRINT READINGS ================================
             ctr += 1
-            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp)
-            sleep(1)
+            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts)
+            sleep(0.1)
 
         except KeyboardInterrupt:
             print("\n\nStopping measurement...")
