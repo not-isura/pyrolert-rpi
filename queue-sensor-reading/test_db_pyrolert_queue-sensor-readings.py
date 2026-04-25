@@ -9,6 +9,7 @@ from datetime import datetime
 from sps30 import SPS30
 #from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C, recvbuf
 from gas_sensor import GasSensor, GasSensorGroup
+from temp_sensor import TempSensor
 import db
 
 GAS_SETUP_TIMEOUT_S = 10
@@ -44,7 +45,6 @@ def PM_Sensor_setup():
     #print("Cleaning for 10s...")
 
     return pm_sensor
-
 
 def PM_Sensor_measure(pm_sensor):
     # Get PM sensor measurement as dictionary
@@ -104,59 +104,15 @@ def GAS_measure(gas_group):
     return concentration_CO, concentration_O2, concentration_NO2
 
 def Temp_Sensor_setup():
-    #these tow lines mount the device:
-    os.system('modprobe w1-gpio')
-    os.system('modprobe w1-therm')
-    
-    base_dir = '/sys/bus/w1/devices/'
-    devices = glob.glob(base_dir + '28*')
-    if not devices:
-        raise RuntimeError("No DS18B20 temperature sensor found under /sys/bus/w1/devices/")
+    temp_sensor = TempSensor()
+    temp_sensor.setup()
+    temp_sensor.start()
+    return temp_sensor
 
-    device_path = devices[0] #get file path of sensor
-    rom = device_path.split('/')[-1] #get rom name
+def Temp_Sensor_measure(temp_sensor):
+    temp_c, unit_Temp = temp_sensor.get()
+    return temp_c, unit_Temp
 
-    sleep(0.5)
-    print('Temperature Device ROM: '+ rom)
-    return device_path
-
-def read_temp_raw(device_path):
-    with open(device_path + '/w1_slave', 'r') as f:
-        lines = f.readlines()
-    
-    if len(lines) < 2:
-        raise ValueError(f"Unexpected sensor output: {lines}")
-    
-    valid, temp = lines
-    return valid, temp
- 
-def read_temp(device_path):
-    valid, temp = read_temp_raw(device_path)
-    temp_unit = "°C"
-
-    start_wait = time.monotonic()
-    while 'YES' not in valid:
-        if time.monotonic() - start_wait >= TEMP_READ_TIMEOUT_S:
-            raise TimeoutError("Temperature sensor timed out waiting for valid reading")
-        sleep(0.2)
-        valid, temp = read_temp_raw(device_path)
-
-    pos = temp.find('t=')
-    if pos == -1:
-        raise ValueError(f"Malformed temperature sensor payload: {temp.strip()}")
-
-    #read the temperature .
-    temp_string = temp[pos+2:]
-
-    raw_value = int(temp_string)
-    # DS18B20 returns exactly 0 raw when disconnected
-    if raw_value == 0:
-        raise RuntimeError("Temperature sensor returned raw 0 — sensor may be disconnected or faulty")
-
-    temp_c = float(temp_string)/1000.0 
-    #temp_f = temp_c * (9.0 / 5.0) + 32.0
-    #return temp_c, temp_f
-    return round(temp_c, 2), temp_unit
 
 def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts, delay):
     print("----------------------------")
@@ -246,7 +202,7 @@ if __name__ == "__main__":
     try:
         pm_sensor = setup_with_retries("PM sensor", PM_Sensor_setup)
         gas_CO, gas_O2, gas_NO2, gas_group = setup_with_retries("Gas sensors", GAS_Sensors_setup)
-        temp_dev_path = setup_with_retries("Temperature sensor", Temp_Sensor_setup)
+        temp_sensor = setup_with_retries("Temperature sensor", Temp_Sensor_setup)
     except Exception as e:
         error_count += 1
         error_info = {
@@ -288,7 +244,7 @@ if __name__ == "__main__":
             volume_PM, unit_PM = pm_result
 
             # Read Temp Values
-            temp_c, unit_Temp= read_temp(temp_dev_path)
+            temp_c, unit_Temp= Temp_Sensor_measure(temp_sensor)
 
             # Read Gas Values (CO, O2, NO2)
             concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
@@ -335,7 +291,7 @@ if __name__ == "__main__":
 
 
             # PRINT READINGS ================================
-            sleep(0)
+            #sleep(0.25)
             delay = (capture_ts - last_ts) * 1000 if last_ts is not None else 0.0
             last_ts = capture_ts
 
