@@ -128,7 +128,7 @@ class DFRobot_MultiGasSensor(object):
     '''
     if probe_type == self.O2:
       self.gastype = DFRobot_GasType.O2
-      self.gasunits = "%%"
+      self.gasunits = "%"
     elif probe_type == self.CO:
       self.gastype = DFRobot_GasType.CO
       self.gasunits = "ppm"

@@ -227,7 +227,7 @@ def read_temp(device_path):
     #return temp_c, temp_f
     return round(temp_c, 2), temp_unit
 
-def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts):
+def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts, delay):
     print("----------------------------")
     print("Reading No.", ctr)
     print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
@@ -235,7 +235,9 @@ def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_
     print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
     print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
     print(f"Temp: {temp_c} {unit_Temp}")
-    print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')})")
+    #print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]})")
+    print(f"Delay: {delay:.1f} ms")
 
 def write_session_log(start_time, end_time, duration, status, ctr, error_count, error_log):
     with open('session_log.txt', 'a') as log_file:
@@ -334,6 +336,7 @@ if __name__ == "__main__":
     - concentration_O2
     - concentration_NO2
     """
+    last_ts = None
 
     while True:
         try:
@@ -367,7 +370,10 @@ if __name__ == "__main__":
             ### DATABASE SAVING ===============================
 
             # Use one timestamp captured when this cycle is fully processed and ready to persist.
-            capture_ts = int(time.time())
+            #capture_ts = int(time.time())
+            capture_ts = float(time.time())
+            delay = (capture_ts - last_ts) * 1000 if last_ts is not None else 0.0
+            last_ts = capture_ts
 
             if db_conn is not None:
                 try:
@@ -401,7 +407,7 @@ if __name__ == "__main__":
 
             # PRINT READINGS ================================
             ctr += 1
-            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts)
+            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts, delay)
             sleep(0.1)
 
         except KeyboardInterrupt:
