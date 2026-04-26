@@ -27,14 +27,15 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sensor_readings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts INTEGER NOT NULL,
-                gas_co REAL,
-                gas_no2 REAL,
-                gas_o2 REAL,
-                temp_c REAL,
-                pm25 REAL,
-                detection_result TEXT
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                  INTEGER NOT NULL,
+                gas_co              REAL,
+                gas_no2             REAL,
+                gas_o2              REAL,
+                temp_c              REAL,
+                pm25                REAL,
+                detection_result    TEXT,
+                is_synced           INTEGER DEFAULT 0
             );
             """
         )

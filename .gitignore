@@ -10,3 +10,5 @@ session_log.txt
 *.sqlite-shm
 *.sqlite-wal
 
+.env
+

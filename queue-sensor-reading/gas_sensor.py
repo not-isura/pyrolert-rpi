@@ -59,7 +59,7 @@ class GasSensorGroup:
         self.co  = co
         self.o2  = o2
         self.no2 = no2
-        self._data: queue.Queue = queue.Queue(maxsize=20)
+        self._data: queue.Queue = queue.Queue(maxsize=1)
 
     def start(self):
         threading.Thread(target=self._run, daemon=True, name="GasSensorGroup").start()

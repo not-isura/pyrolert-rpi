@@ -14,7 +14,7 @@ class TempSensor:
 
     def __init__(self):
         self._device_path = None
-        self._data: queue.Queue = queue.Queue(maxsize=20)
+        self._data: queue.Queue = queue.Queue(maxsize=1)
 
     def setup(self):
         os.system('modprobe w1-gpio')
