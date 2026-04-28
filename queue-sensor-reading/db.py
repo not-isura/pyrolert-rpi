@@ -28,7 +28,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             """
             CREATE TABLE IF NOT EXISTS sensor_readings (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts                  INTEGER NOT NULL,
+                ts                  REAL NOT NULL,
                 gas_co              REAL,
                 gas_no2             REAL,
                 gas_o2              REAL,
@@ -142,7 +142,7 @@ def insert_reading(
             INSERT INTO sensor_readings (ts, gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result)
             VALUES (?, ?, ?, ?, ?, ?, ?);
             """,
-            (int(ts), gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result),
+            (ts, gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result),
         )
     return int(cursor.lastrowid)
 
@@ -161,7 +161,7 @@ def insert_detection(
             INSERT INTO detection_events (ts, result, meta)
             VALUES (?, ?, ?);
             """,
-            (int(ts), result, meta_text),
+            (ts, result, meta_text),
         )
     return int(cursor.lastrowid)
 
@@ -256,7 +256,7 @@ def insert_head_detection_result(
             """,
             (
                 run_id,
-                int(ts),
+                ts,
                 sensor_reading_id,
                 headcount_conf30,
                 headcount_conf60,
@@ -375,3 +375,35 @@ def bulk_insert_mock_readings(
             )
             count += 1
     return count
+
+def fetch_unsynced_readings(
+    conn: sqlite3.Connection,
+    limit: int = 50,
+) -> List[sqlite3.Row]:
+    """Return unsynced readings ordered by oldest first for batch sync."""
+    cursor = conn.execute(
+        """
+        SELECT * FROM sensor_readings
+        WHERE is_synced = 0
+        ORDER BY ts ASC
+        LIMIT ?;
+        """,
+        (limit,),
+    )
+    return list(cursor.fetchall())
+
+
+def mark_as_synced(
+    conn: sqlite3.Connection,
+    row_ids: List[int],
+) -> int:
+    """Mark a list of row ids as synced; returns affected row count."""
+    if not row_ids:
+        return 0
+    placeholders = ",".join("?" * len(row_ids))
+    with conn:
+        cursor = conn.execute(
+            f"UPDATE sensor_readings SET is_synced = 1 WHERE id IN ({placeholders});",
+            row_ids,
+        )
+    return cursor.rowcount

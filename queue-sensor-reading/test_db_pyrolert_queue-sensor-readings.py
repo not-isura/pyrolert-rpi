@@ -12,6 +12,9 @@ from gas_sensor import GasSensor, GasSensorGroup
 from temp_sensor import TempSensor
 import db
 
+import supabase_client
+import sync_worker
+
 GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
 SETUP_MAX_RETRIES = 5
@@ -191,6 +194,9 @@ if __name__ == "__main__":
     try:
         db_conn = db.init_db(db_path)
         print(f"SQLite ready: {db_path}")
+        # Start background sync worker
+        if db_conn is not None:
+            sync_worker.start(db_conn)
     except Exception as db_init_error:
         print(f"[!] DB init failed. Continuing without DB writes: {db_init_error}")
 
@@ -262,7 +268,7 @@ if __name__ == "__main__":
             ### DATABASE SAVING ===============================          
             if db_conn is not None:
                 try:
-                    db.insert_reading(
+                    row_id = db.insert_reading(
                         conn=db_conn,
                         ts=capture_ts,
                         gas_co=float(concentration_CO),
@@ -273,6 +279,25 @@ if __name__ == "__main__":
                         detection_result=detection_result,
                     )
                     db_error_count = 0
+
+                    # Immediately push latest reading to Supabase
+                    row = {
+                        "id":               row_id,
+                        "ts":               capture_ts,
+                        "gas_co":           float(concentration_CO),
+                        "gas_no2":          float(concentration_NO2),
+                        "gas_o2":           float(concentration_O2),
+                        "temp_c":           temp_c,
+                        "pm25":             volume_PM,
+                        "detection_result": detection_result,
+                    }
+                    success = supabase_client.push_reading(row)
+                    if success:
+                        db.mark_as_synced(db_conn, [row_id])
+                        print("[Supabase] ✅ Live push successful")  # uncomment if you want to see it
+                    else:
+                        print("[Supabase] ⚠️ Live push failed, will sync later via background worker")
+
                 except Exception as db_write_error:
                     db_error_count += 1
                     print(f"[!] DB write error {db_error_count}/{max_db_errors}: {db_write_error}")
@@ -288,8 +313,6 @@ if __name__ == "__main__":
                         except Exception as reconnect_error:
                             print(f"[!] SQLite reconnect failed, DB writes paused: {reconnect_error}")
                             db_conn = None
-
-
             # PRINT READINGS ================================
             #sleep(0.25)
             delay = (capture_ts - last_ts) * 1000 if last_ts is not None else 0.0
@@ -301,6 +324,7 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             print("\n\nStopping measurement...")
+            sync_worker.stop()  # stop background thread cleanly
             if db_conn is not None:
                 db_conn.close()
             finalize_session(pm_sensor if 'pm_sensor' in dir() else None, start_time, "User interrupted", ctr, error_count, error_log)

@@ -11,4 +11,4 @@ session_log.txt
 *.sqlite-wal
 
 .env
-
+*venv
