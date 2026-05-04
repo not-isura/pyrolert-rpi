@@ -41,6 +41,7 @@ def push_reading(row: dict) -> bool:
             "gas_no2":          row["gas_no2"],
             "gas_o2":           row["gas_o2"],
             "temp_c":           row["temp_c"],
+            "temp_roc":         row.get("temp_roc"),
             "pm25":             row["pm25"],
             "detection_result": row["detection_result"],
         }
@@ -64,12 +65,14 @@ def push_readings_batch(rows: list) -> list[int]:
 
     for row in rows:
         try:
+            temp_roc = row["temp_roc"] if "temp_roc" in row.keys() else None
             payload = {
                 "ts":               float(row["ts"]),
                 "gas_co":           row["gas_co"],
                 "gas_no2":          row["gas_no2"],
                 "gas_o2":           row["gas_o2"],
                 "temp_c":           row["temp_c"],
+                "temp_roc":         temp_roc,
                 "pm25":             row["pm25"],
                 "detection_result": row["detection_result"],
             }

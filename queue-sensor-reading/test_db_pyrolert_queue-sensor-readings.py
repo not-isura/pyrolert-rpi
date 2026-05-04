@@ -19,8 +19,8 @@ GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
 SETUP_MAX_RETRIES = 5
 
-def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_c_1min = 0):
-    temp_RoC = temp_c - temp_c_1min
+def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
+    temp_RoC = temp_roc if temp_roc is not None else 0.0
     if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
         return "High Alert"
     if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
@@ -117,7 +117,7 @@ def Temp_Sensor_measure(temp_sensor):
     return temp_c, unit_Temp
 
 
-def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts, delay):
+def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, temp_roc, unit_Temp, capture_ts, delay):
     print("----------------------------")
     print("Reading No.", ctr)
     print(f"{gas_CO.gastype}: {concentration_CO:.3f} {gas_CO.gasunits}")
@@ -125,6 +125,10 @@ def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_
     print(f"{gas_NO2.gastype}: {concentration_NO2:.3f} {gas_NO2.gasunits}")
     print(f"PM 2.5: {volume_PM:.3f} {unit_PM}")
     print(f"Temp: {temp_c} {unit_Temp}")
+    if temp_roc is not None:
+        print(f"Temp RoC (1 min): {temp_roc:.2f} {unit_Temp}")
+    else:
+        print(f"Temp RoC (1 min): N/A {unit_Temp}")
     #print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')})")
     print(f"Timestamp: {capture_ts} ({datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]})")
     print(f"Delay: {delay:.1f} ms")
@@ -195,6 +199,7 @@ if __name__ == "__main__":
         db_conn = db.init_db(db_path)
         print(f"SQLite ready: {db_path}")
         # Start background sync worker
+        # Commented out to Pause the Supabase Sync for now
         if db_conn is not None:
             sync_worker.start(db_conn)
     except Exception as db_init_error:
@@ -252,6 +257,12 @@ if __name__ == "__main__":
             # Read Temp Values
             temp_c, unit_Temp= Temp_Sensor_measure(temp_sensor)
 
+            temp_roc = None
+            if db_conn is not None:
+                temp_c_1min = db.fetch_temp_c_at_or_before_ts(db_conn, capture_ts - 60.0)
+                if temp_c_1min is not None:
+                    temp_roc = temp_c - temp_c_1min
+
             # Read Gas Values (CO, O2, NO2)
             concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
     
@@ -263,6 +274,7 @@ if __name__ == "__main__":
                 gas_o2=float(concentration_O2),
                 pm25=volume_PM,
                 temp_c=temp_c,
+                temp_roc=temp_roc,
             )
 
             ### DATABASE SAVING ===============================          
@@ -275,12 +287,15 @@ if __name__ == "__main__":
                         gas_no2=float(concentration_NO2),
                         gas_o2=float(concentration_O2),
                         temp_c=temp_c,
+                        temp_roc=temp_roc,
                         pm25=volume_PM,
                         detection_result=detection_result,
                     )
                     db_error_count = 0
 
                     # Immediately push latest reading to Supabase
+                    # Commented out to Pause the Supabase Sync for now
+                    
                     row = {
                         "id":               row_id,
                         "ts":               capture_ts,
@@ -288,6 +303,7 @@ if __name__ == "__main__":
                         "gas_no2":          float(concentration_NO2),
                         "gas_o2":           float(concentration_O2),
                         "temp_c":           temp_c,
+                        "temp_roc":         temp_roc,
                         "pm25":             volume_PM,
                         "detection_result": detection_result,
                     }
@@ -297,7 +313,7 @@ if __name__ == "__main__":
                         print("[Supabase] ✅ Live push successful")  # uncomment if you want to see it
                     else:
                         print("[Supabase] ⚠️ Live push failed, will sync later via background worker")
-
+                    
                 except Exception as db_write_error:
                     db_error_count += 1
                     print(f"[!] DB write error {db_error_count}/{max_db_errors}: {db_write_error}")
@@ -319,7 +335,7 @@ if __name__ == "__main__":
             last_ts = capture_ts
 
             ctr += 1
-            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, unit_Temp, capture_ts, delay)
+            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, temp_roc, unit_Temp, capture_ts, delay)
             
 
         except KeyboardInterrupt:

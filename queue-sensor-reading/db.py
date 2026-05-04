@@ -33,6 +33,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
                 gas_no2             REAL,
                 gas_o2              REAL,
                 temp_c              REAL,
+                temp_roc            REAL,
                 pm25                REAL,
                 detection_result    TEXT,
                 is_synced           INTEGER DEFAULT 0
@@ -123,6 +124,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             ON head_detection_results (sensor_reading_id);
             """
         )
+        _ensure_sensor_readings_columns(conn)
+
+
+def _ensure_sensor_readings_columns(conn: sqlite3.Connection) -> None:
+    cursor = conn.execute("PRAGMA table_info(sensor_readings);")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "temp_roc" not in existing:
+        conn.execute("ALTER TABLE sensor_readings ADD COLUMN temp_roc REAL;")
 
 
 def insert_reading(
@@ -132,6 +141,7 @@ def insert_reading(
     gas_no2: Optional[float],
     gas_o2: Optional[float],
     temp_c: Optional[float],
+    temp_roc: Optional[float],
     pm25: Optional[float],
     detection_result: Optional[str],
 ) -> int:
@@ -139,10 +149,10 @@ def insert_reading(
     with conn:
         cursor = conn.execute(
             """
-            INSERT INTO sensor_readings (ts, gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result)
-            VALUES (?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO sensor_readings (ts, gas_co, gas_no2, gas_o2, temp_c, temp_roc, pm25, detection_result)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """,
-            (ts, gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result),
+            (ts, gas_co, gas_no2, gas_o2, temp_c, temp_roc, pm25, detection_result),
         )
     return int(cursor.lastrowid)
 
@@ -284,6 +294,25 @@ def fetch_recent_readings(
     return list(cursor.fetchall())
 
 
+def fetch_temp_c_at_or_before_ts(
+    conn: sqlite3.Connection,
+    ts: float,
+) -> Optional[float]:
+    """Return the most recent temp_c at or before ts, or None if missing."""
+    cursor = conn.execute(
+        """
+        SELECT temp_c
+        FROM sensor_readings
+        WHERE ts <= ?
+        ORDER BY ts DESC
+        LIMIT 1;
+        """,
+        (ts,),
+    )
+    row = cursor.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
+
+
 def fetch_recent_head_detection_results(
     conn: sqlite3.Connection,
     limit: int = 100,
@@ -360,8 +389,8 @@ def bulk_insert_mock_readings(
         for row in rows:
             conn.execute(
                 """
-                INSERT INTO sensor_readings (ts, gas_co, gas_no2, gas_o2, temp_c, pm25, detection_result)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO sensor_readings (ts, gas_co, gas_no2, gas_o2, temp_c, temp_roc, pm25, detection_result)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                 """,
                 (
                     int(row.get("ts", time.time())),
@@ -369,6 +398,7 @@ def bulk_insert_mock_readings(
                     row.get("gas_no2"),
                     row.get("gas_o2"),
                     row.get("temp_c"),
+                    row.get("temp_roc"),
                     row.get("pm25"),
                     row.get("detection_result"),
                 ),
