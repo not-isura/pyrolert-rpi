@@ -64,6 +64,48 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS alert_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_ts REAL NOT NULL,
+                last_updated_ts REAL NOT NULL,
+                current_state TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                meta TEXT
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alert_episodes_started_ts
+            ON alert_episodes (started_ts);
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                episode_id INTEGER NOT NULL,
+                ts REAL NOT NULL,
+                state TEXT NOT NULL,
+                meta TEXT,
+                FOREIGN KEY (episode_id) REFERENCES alert_episodes(id) ON DELETE CASCADE
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alert_transitions_episode_id
+            ON alert_transitions (episode_id);
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_alert_transitions_ts
+            ON alert_transitions (ts);
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS head_detection_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 started_ts INTEGER NOT NULL,
@@ -172,6 +214,63 @@ def insert_detection(
             VALUES (?, ?, ?);
             """,
             (ts, result, meta_text),
+        )
+    return int(cursor.lastrowid)
+
+
+def create_alert_episode(
+    conn: sqlite3.Connection,
+    started_ts: float,
+    current_state: str,
+    meta: Optional[dict] = None,
+) -> int:
+    """Create a new alert episode and return the new row id."""
+    meta_text = json.dumps(meta) if meta is not None else None
+    with conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO alert_episodes (started_ts, last_updated_ts, current_state, status, meta)
+            VALUES (?, ?, ?, 'active', ?);
+            """,
+            (started_ts, started_ts, current_state, meta_text),
+        )
+    return int(cursor.lastrowid)
+
+
+def update_alert_episode(
+    conn: sqlite3.Connection,
+    episode_id: int,
+    last_updated_ts: float,
+    current_state: Optional[str] = None,
+) -> int:
+    """Update an alert episode; returns affected row count."""
+    if current_state is None:
+        query = "UPDATE alert_episodes SET last_updated_ts = ? WHERE id = ?;"
+        params = (last_updated_ts, episode_id)
+    else:
+        query = "UPDATE alert_episodes SET last_updated_ts = ?, current_state = ? WHERE id = ?;"
+        params = (last_updated_ts, current_state, episode_id)
+    with conn:
+        cursor = conn.execute(query, params)
+    return cursor.rowcount
+
+
+def insert_alert_transition(
+    conn: sqlite3.Connection,
+    episode_id: int,
+    ts: float,
+    state: str,
+    meta: Optional[dict] = None,
+) -> int:
+    """Insert a transition record for an alert episode."""
+    meta_text = json.dumps(meta) if meta is not None else None
+    with conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO alert_transitions (episode_id, ts, state, meta)
+            VALUES (?, ?, ?, ?);
+            """,
+            (episode_id, ts, state, meta_text),
         )
     return int(cursor.lastrowid)
 
