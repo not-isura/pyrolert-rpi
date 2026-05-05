@@ -396,17 +396,20 @@ def fetch_recent_readings(
 def fetch_temp_c_at_or_before_ts(
     conn: sqlite3.Connection,
     ts: float,
+    window_seconds: float = 5,
 ) -> Optional[float]:
-    """Return the most recent temp_c at or before ts, or None if missing."""
+    """Return the nearest temp_c within +/- window_seconds of ts, or None if missing."""
+    min_ts = ts - window_seconds
+    max_ts = ts + window_seconds
     cursor = conn.execute(
         """
         SELECT temp_c
         FROM sensor_readings
-        WHERE ts <= ?
-        ORDER BY ts DESC
+        WHERE ts BETWEEN ? AND ?
+        ORDER BY ABS(ts - ?) ASC
         LIMIT 1;
         """,
-        (ts,),
+        (min_ts, max_ts, ts),
     )
     row = cursor.fetchone()
     return float(row[0]) if row and row[0] is not None else None

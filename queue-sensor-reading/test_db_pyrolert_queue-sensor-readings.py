@@ -3,19 +3,18 @@ import time
 import glob
 import os
 import traceback
-from collections import deque
-from typing import Optional
 from time import sleep
 from datetime import datetime
 
 from sps30 import SPS30
-#from DFRobot_MultiGasSensor import DFRobot_MultiGasSensor_I2C, recvbuf
 from gas_sensor import GasSensor, GasSensorGroup
 from temp_sensor import TempSensor
 import db
 
 import supabase_client
 import sync_worker
+from alert_logic import AlertEpisodeManager, SlidingWindowAlert
+from buzzer_toggle import ToggleBuzzer
 
 GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
@@ -23,92 +22,18 @@ SETUP_MAX_RETRIES = 5
 WINDOW_SIZE = 20
 HIGH_ALERT_THRESHOLD = 12
 WARNING_THRESHOLD = 12
+BUZZER_PIN = 22
 
-
-class SlidingWindowAlert:
-    def __init__(self, window_size: int, high_threshold: int, warning_threshold: int):
-        self._window_size = window_size
-        self._high_threshold = high_threshold
-        self._warning_threshold = warning_threshold
-        self._window = deque()
-        self._high_count = 0
-        self._warning_count = 0
-
-    def add(self, detection_result: str) -> Optional[str]:
-        if detection_result == "High Alert":
-            self._high_count += 1
-        elif detection_result == "Warning":
-            self._warning_count += 1
-
-        self._window.append(detection_result)
-        if len(self._window) > self._window_size:
-            removed = self._window.popleft()
-            if removed == "High Alert":
-                self._high_count -= 1
-            elif removed == "Warning":
-                self._warning_count -= 1
-
-        if self._high_count >= self._high_threshold:
-            return "High Alert"
-        if self._high_count + self._warning_count >= self._warning_threshold:
-            return "Warning"
-        return None
-
-    def counts(self) -> tuple[int, int, int]:
-        normal_count = len(self._window) - self._high_count - self._warning_count
-        return normal_count, self._warning_count, self._high_count
-
-
-class AlertEpisodeManager:
-    _SEVERITY = {"Warning": 1, "High Alert": 2}
-
-    def __init__(self, db_conn):
-        self._db_conn = db_conn
-        self._episode_id = None
-        self._current_state = None
-
-    def handle(self, confirmed_state: Optional[str], ts: float) -> None:
-        if confirmed_state is None:
-            return
-
-        if self._episode_id is None:
-            self._episode_id = self._create_episode(ts, confirmed_state)
-            self._current_state = confirmed_state
-            self._insert_transition(ts, confirmed_state)
-            print(f"[Alert] New episode {self._episode_id} started: {confirmed_state}")
-            return
-
-        new_severity = self._SEVERITY.get(confirmed_state, 0)
-        current_severity = self._SEVERITY.get(self._current_state, 0)
-        if new_severity > current_severity:
-            self._update_episode(ts, confirmed_state)
-            self._insert_transition(ts, confirmed_state)
-            self._current_state = confirmed_state
-            print(f"[Alert] Episode {self._episode_id} escalated to: {confirmed_state}")
-        else:
-            self._update_episode(ts, None)
-
-    def _create_episode(self, ts: float, state: str) -> int:
-        if self._db_conn is None:
-            return 0
-        return db.create_alert_episode(self._db_conn, started_ts=ts, current_state=state)
-
-    def _update_episode(self, ts: float, state: Optional[str]) -> None:
-        if self._db_conn is None or self._episode_id is None:
-            return
-        db.update_alert_episode(self._db_conn, self._episode_id, last_updated_ts=ts, current_state=state)
-
-    def _insert_transition(self, ts: float, state: str) -> None:
-        if self._db_conn is None or self._episode_id is None:
-            return
-        db.insert_alert_transition(self._db_conn, self._episode_id, ts=ts, state=state)
+toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
 
 def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
     temp_RoC = temp_roc if temp_roc is not None else 0.0
-    if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
+    if (gas_co >= 60 or gas_no2 >= 1) and pm25 >= 150:
         return "High Alert"
-    if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
-        return "Warning"
+    # if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
+    #     return "High Alert"
+    # if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
+    #     return "Warning"
     return "Normal"
 
 def PM_Sensor_setup():
@@ -294,7 +219,7 @@ if __name__ == "__main__":
     max_errors = 5
     error_log = []  # Store errors with timestamps
     window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
-    alert_manager = AlertEpisodeManager(db_conn)
+    alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer)
 
     try:
         pm_sensor = setup_with_retries("PM sensor", PM_Sensor_setup)
