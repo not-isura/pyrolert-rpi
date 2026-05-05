@@ -83,3 +83,73 @@ def push_readings_batch(rows: list) -> list[int]:
             continue  # skip failed row, try next one
 
     return successful_ids
+
+
+def push_alert_episode(row: dict) -> Optional[int]:
+    """Push a single alert episode to Supabase and return its id if available."""
+    client = get_client()
+    if client is None:
+        return None
+
+    try:
+        payload = {
+            "started_ts":      float(row["started_ts"]),
+            "last_updated_ts": float(row["last_updated_ts"]),
+            "current_state":   row["current_state"],
+            "status":          row.get("status", "active"),
+            "meta":            row.get("meta"),
+        }
+        response = client.table("alert_episodes").insert(payload).execute()
+        if response.data:
+            return int(response.data[0]["id"])
+    except Exception as e:
+        print(f"[Supabase] Alert episode push failed: {e}")
+    return None
+
+
+def push_alert_transition(row: dict) -> bool:
+    """Push a single alert transition to Supabase; returns True if successful."""
+    client = get_client()
+    if client is None:
+        return False
+
+    try:
+        payload = {
+            "episode_id": row["episode_id"],
+            "ts":         float(row["ts"]),
+            "state":      row["state"],
+            "meta":       row.get("meta"),
+        }
+        client.table("alert_transitions").insert(payload).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Alert transition push failed: {e}")
+        return False
+
+
+def update_alert_episode(
+    episode_id: int,
+    last_updated_ts: float,
+    current_state: Optional[str] = None,
+    status: Optional[str] = None,
+    meta: Optional[dict] = None,
+) -> bool:
+    """Update an alert episode in Supabase; returns True if successful."""
+    client = get_client()
+    if client is None:
+        return False
+
+    payload = {"last_updated_ts": float(last_updated_ts)}
+    if current_state is not None:
+        payload["current_state"] = current_state
+    if status is not None:
+        payload["status"] = status
+    if meta is not None:
+        payload["meta"] = meta
+
+    try:
+        client.table("alert_episodes").update(payload).eq("id", episode_id).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Alert episode update failed: {e}")
+        return False
