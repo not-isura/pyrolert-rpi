@@ -1,5 +1,6 @@
 /trash
 *__pycache__
+*.pytest_cache
 /test_db/__pycache__
 /test_db/.pytest_cache
 /test_db/__init__.py
