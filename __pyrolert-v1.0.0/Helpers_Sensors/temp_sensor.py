@@ -33,7 +33,7 @@ class TempSensor:
 
         # Warm-up read to verify sensor responds
         warmup, unit_Temp = self._read_temp()
-        print(f"Temperature sensor ready (warm-up: {warmup:.2f} {unit_Temp})")
+        print(f"Temperature sensor ready (warm-up: {warmup:.2f} {unit_Temp})\n")
 
     def _read_raw(self):
         with open(self._device_path + '/w1_slave', 'r') as f:

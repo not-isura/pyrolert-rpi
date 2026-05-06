@@ -18,7 +18,7 @@ _stop_event = threading.Event()
 
 def _sync_loop(db_conn):
     """Main sync loop that runs in the background thread."""
-    print("[Sync] Background sync worker started ✅")
+    print("[Sync] Background sync worker started ✅\n")
 
     while not _stop_event.is_set():
         try:
