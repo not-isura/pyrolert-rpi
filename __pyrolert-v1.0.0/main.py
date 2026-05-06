@@ -300,26 +300,17 @@ if __name__ == "__main__":
                     )
                     db_error_count = 0
 
-                    # Immediately push latest reading to Supabase
-                    # Commented out to Pause the Supabase Sync for now
-                    
-                    # row = {
-                    #     "id":               row_id,
-                    #     "ts":               capture_ts,
-                    #     "gas_co":           float(concentration_CO),
-                    #     "gas_no2":          float(concentration_NO2),
-                    #     "gas_o2":           float(concentration_O2),
-                    #     "temp_c":           temp_c,
-                    #     "temp_roc":         temp_roc,
-                    #     "pm25":             volume_PM,
-                    #     "detection_result": detection_result,
-                    # }
-                    # success = supabase_client.push_reading(row)
-                    # if success:
-                    #     db.mark_as_synced(db_conn, [row_id])
-                    #     print("[Supabase] ✅ Live push successful")  # uncomment if you want to see it
-                    # else:
-                    #     print("[Supabase] ⚠️ Live push failed, will sync later via background worker")
+                    sync_worker.push_live({
+                        "id":               row_id,
+                        "ts":               capture_ts,
+                        "gas_co":           float(concentration_CO),
+                        "gas_no2":          float(concentration_NO2),
+                        "gas_o2":           float(concentration_O2),
+                        "temp_c":           temp_c,
+                        "temp_roc":         temp_roc,
+                        "pm25":             volume_PM,
+                        "detection_result": detection_result,
+                    })
                     
                 except Exception as db_write_error:
                     db_error_count += 1
@@ -369,6 +360,7 @@ if __name__ == "__main__":
             # Check if max errors reached
             if error_count >= max_errors:
                 print(f"\nMaximum error limit ({max_errors}) reached. Stopping...")
+                sync_worker.stop()
                 if db_conn is not None:
                     db_conn.close()
                 finalize_session(
