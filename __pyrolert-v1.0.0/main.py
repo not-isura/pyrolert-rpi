@@ -1,30 +1,18 @@
 import sys
 import time
-import glob
-import os
 import traceback
 from time import sleep
 from datetime import datetime
 
-# from sps30 import SPS30
 from Sensor_Libraries import SPS30
-
-# from gas_sensor import GasSensor, GasSensorGroup
-# from temp_sensor import TempSensor
 from Helpers_Sensors import GasSensor, GasSensorGroup, TempSensor
-
-# import db
-# import supabase_client
-# import sync_worker
 from Database import db, supabase_client, sync_worker
-
-# from buzzer_toggle import ToggleBuzzer
-# from led_toggle import ToggleLED
 from Helpers_Actuators import ToggleBuzzer, ToggleLED
 
+from alert_logic import AlertEpisodeManager, SlidingWindowAlert, pyrolert_detection_result
 
-from alert_logic import AlertEpisodeManager, SlidingWindowAlert
 
+# VARIABLE CONSTANTS
 GAS_SETUP_TIMEOUT_S = 10
 TEMP_READ_TIMEOUT_S = 5
 SETUP_MAX_RETRIES = 5
@@ -32,18 +20,10 @@ WINDOW_SIZE = 20
 HIGH_ALERT_THRESHOLD = 12
 WARNING_THRESHOLD = 12
 BUZZER_PIN = 22
+LED_PIN = 23
 
 toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
-
-def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
-    temp_RoC = temp_roc if temp_roc is not None else 0.0
-    if (gas_co >= 60 or gas_no2 >= 1) and pm25 >= 150:
-        return "High Alert"
-    # if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
-    #     return "High Alert"
-    # if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
-    #     return "Warning"
-    return "Normal"
+toggle_led = ToggleLED(LED_PIN)
 
 def PM_Sensor_setup():
     sleep(0.5)
@@ -84,22 +64,7 @@ def PM_Sensor_measure(pm_sensor):
             "pm10": mass_density["pm10"]
         }
         
-        # Extract particle count values
-        # particle_count = pm_data["sensor_data"]["particle_count"]
-        # pm_count = {
-        #     "pm0.5": particle_count["pm0.5"],
-        #     "pm1.0": particle_count["pm1.0"],
-        #     "pm2.5": particle_count["pm2.5"],
-        #     "pm4.0": particle_count["pm4.0"],
-        #     "pm10": particle_count["pm10"]
-        # }
-        
-        # Extract other values
-        # particle_size = pm_data["sensor_data"]["particle_size"]
         mass_unit = pm_data["sensor_data"]["mass_density_unit"]
-        # count_unit = pm_data["sensor_data"]["particle_count_unit"]
-        # size_unit = pm_data["sensor_data"]["particle_size_unit"]
-        # timestamp = pm_data["timestamp"]
 
         return pm_mass["pm2.5"], mass_unit
 
@@ -152,7 +117,7 @@ def print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_
     print(f"Delay: {delay:.1f} ms")
 
 def write_session_log(start_time, end_time, duration, status, ctr, error_count, error_log):
-    with open('session_log.txt', 'a') as log_file:
+    with open('Logs/session_log.txt', 'a') as log_file:
         log_file.write(f"\n{'='*50}\n")
         log_file.write(f"Session Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         log_file.write(f"Session End:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -203,13 +168,21 @@ def setup_with_retries(setup_name, setup_callable, max_retries=SETUP_MAX_RETRIES
             sleep(retry_delay_s)
 
 if __name__ == "__main__":
+    ### Start of Log =======================================
     # Record start time
     start_time = datetime.now()
     print(f"\n{'='*50}")
     print(f"Session started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*50}\n")
 
-    db_path = "db_pyrolert.sqlite"
+    ctr = 0
+    error_count = 0
+    max_errors = 5
+    error_log = []  # Store errors with timestamps
+
+
+    ### DB Startup ==========================================
+    db_path = "Database/db_pyrolert.sqlite"
     db_conn = None
     db_error_count = 0
     max_db_errors = 5
@@ -223,17 +196,15 @@ if __name__ == "__main__":
     except Exception as db_init_error:
         print(f"[!] DB init failed. Continuing without DB writes: {db_init_error}")
 
-    ctr = 0
-    error_count = 0
-    max_errors = 5
-    error_log = []  # Store errors with timestamps
-    window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
-    alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer)
+    ### Sensor Setups ======================================
 
     try:
         pm_sensor = setup_with_retries("PM sensor", PM_Sensor_setup)
         gas_CO, gas_O2, gas_NO2, gas_group = setup_with_retries("Gas sensors", GAS_Sensors_setup)
         temp_sensor = setup_with_retries("Temperature sensor", Temp_Sensor_setup)
+
+        window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
+        alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer)
     except Exception as e:
         error_count += 1
         error_info = {
@@ -253,14 +224,8 @@ if __name__ == "__main__":
             error_log,
         )
 
-    """
-    Variables for Sensor Readings
-    - volume_PM
-    - temp_c
-    - concentration_CO
-    - concentration_O2
-    - concentration_NO2
-    """
+
+    ### Sensor Reading and Detection Loop ==================================================
     last_ts = None
 
     while True:

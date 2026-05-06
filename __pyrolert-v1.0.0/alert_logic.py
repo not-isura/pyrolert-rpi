@@ -4,6 +4,15 @@ from typing import Optional
 from Database import db
 
 
+def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
+    temp_RoC = temp_roc if temp_roc is not None else 0.0
+    if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
+        return "High Alert"
+    if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
+        return "Warning"
+    return "Normal"
+
+
 class SlidingWindowAlert:
     def __init__(self, window_size: int, high_threshold: int, warning_threshold: int):
         self._window_size = window_size
