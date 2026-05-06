@@ -210,6 +210,8 @@ if __name__ == "__main__":
 
         window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
         alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer)
+
+        toggle_led.start()
     except Exception as e:
         error_count += 1
         error_info = {
@@ -237,22 +239,18 @@ if __name__ == "__main__":
 
     while True:
         try:
-            # print(f"Read {ctr}")
-            # ctr = ctr + 1
-            # sleep(1)
             # Use one timestamp captured when this cycle is fully processed and ready to persist
             capture_ts = float(time.time())
 
+            ### READ SENSOR DATA =========================
             # Read PM Values                
             pm_result = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
-            # pm_result = 0, "pm"
             if pm_result is None:
                 raise ValueError("volume_PM is None: sensor may be disconnected or returning invalid data")
             volume_PM, unit_PM = pm_result
 
             # Read Temp Values
             temp_c, unit_Temp = Temp_Sensor_measure(temp_sensor)
-            # temp_c, unit_Temp = 0, "temp" 
 
             temp_roc = None
             if db_conn is not None:
@@ -262,7 +260,6 @@ if __name__ == "__main__":
 
             # Read Gas Values (CO, O2, NO2)
             concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
-            # concentration_CO, concentration_O2, concentration_NO2 = 0, 0, 0
     
 
             ### SMOKE DETECTION LOGIC =========================
