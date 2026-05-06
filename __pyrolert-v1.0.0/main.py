@@ -137,7 +137,10 @@ def write_session_log(start_time, end_time, duration, status, ctr, error_count, 
 
 def finalize_session(pm_sensor, start_time, status, ctr, error_count, error_log):
     if pm_sensor is not None:
-        pm_sensor.stop_measurement()
+        try:
+            pm_sensor.stop_measurement()
+        except OSError:
+            print("[!] PM sensor already disconnected, skipping stop.")
 
     end_time = datetime.now()
     duration = end_time - start_time
@@ -197,7 +200,7 @@ if __name__ == "__main__":
         print(f"[!] DB init failed. Continuing without DB writes: {db_init_error}")
 
     ### Sensor Setups ======================================
-
+    pm_sensor = None
     try:
         pm_sensor = setup_with_retries("PM sensor", PM_Sensor_setup)
         gas_CO, gas_O2, gas_NO2, gas_group = setup_with_retries("Gas sensors", GAS_Sensors_setup)
@@ -216,7 +219,7 @@ if __name__ == "__main__":
         print(f"\n[!] Startup failed: {e}")
         print(error_info['traceback'])
         finalize_session(
-            pm_sensor if 'pm_sensor' in dir() else None,
+            pm_sensor,
             start_time,
             "Startup failed",
             ctr,
@@ -335,7 +338,7 @@ if __name__ == "__main__":
             sync_worker.stop()  # stop background thread cleanly
             if db_conn is not None:
                 db_conn.close()
-            finalize_session(pm_sensor if 'pm_sensor' in dir() else None, start_time, "User interrupted", ctr, error_count, error_log)
+            finalize_session(pm_sensor, start_time, "User interrupted", ctr, error_count, error_log)
         
         except Exception as e:
             # Record error with timestamp
@@ -358,7 +361,7 @@ if __name__ == "__main__":
                 if db_conn is not None:
                     db_conn.close()
                 finalize_session(
-                    pm_sensor if 'pm_sensor' in dir() else None,
+                    pm_sensor,
                     start_time,
                     f"Stopped - Max errors reached ({max_errors})",
                     ctr,
