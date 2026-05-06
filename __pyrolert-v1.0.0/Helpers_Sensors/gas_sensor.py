@@ -89,8 +89,11 @@ class GasSensorGroup:
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
                 error_tb = traceback.format_exc().strip()
-                print(f"[GasSensorGroup] {error_msg}")
-                print(f"[GasSensorGroup] traceback:\n{error_tb}")
+                try:
+                    print(f"[GasSensorGroup] {error_msg}")
+                    print(f"[GasSensorGroup] traceback:\n{error_tb}")
+                except (OSError, ValueError):
+                    pass
 
                 if self._data.full():
                     try:

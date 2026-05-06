@@ -228,6 +228,8 @@ if __name__ == "__main__":
             error_count,
             error_log,
         )
+    print("\nplease wait 10s...\n")
+    sleep(10)
 
 
     ### Sensor Reading and Detection Loop ==================================================
@@ -235,107 +237,111 @@ if __name__ == "__main__":
 
     while True:
         try:
-            print(f"Read {ctr}")
-            ctr = ctr + 1
-            sleep(1)
-            # # Use one timestamp captured when this cycle is fully processed and ready to persist
-            # capture_ts = float(time.time())
+            # print(f"Read {ctr}")
+            # ctr = ctr + 1
+            # sleep(1)
+            # Use one timestamp captured when this cycle is fully processed and ready to persist
+            capture_ts = float(time.time())
 
-            # # Read PM Values                
-            # pm_result = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
-            # if pm_result is None:
-            #     raise ValueError("volume_PM is None: sensor may be disconnected or returning invalid data")
-            # volume_PM, unit_PM = pm_result
+            # Read PM Values                
+            pm_result = PM_Sensor_measure(pm_sensor) # returns PM 2.5 volume (ug/m3)
+            # pm_result = 0, "pm"
+            if pm_result is None:
+                raise ValueError("volume_PM is None: sensor may be disconnected or returning invalid data")
+            volume_PM, unit_PM = pm_result
 
-            # # Read Temp Values
-            # temp_c, unit_Temp= Temp_Sensor_measure(temp_sensor)
+            # Read Temp Values
+            temp_c, unit_Temp = Temp_Sensor_measure(temp_sensor)
+            # temp_c, unit_Temp = 0, "temp" 
 
-            # temp_roc = None
-            # if db_conn is not None:
-            #     temp_c_1min = db.fetch_temp_c_at_or_before_ts(db_conn, capture_ts - 60.0)
-            #     if temp_c_1min is not None:
-            #         temp_roc = temp_c - temp_c_1min
+            temp_roc = None
+            if db_conn is not None:
+                temp_c_1min = db.fetch_temp_c_at_or_before_ts(db_conn, capture_ts - 60.0)
+                if temp_c_1min is not None:
+                    temp_roc = temp_c - temp_c_1min
 
-            # # Read Gas Values (CO, O2, NO2)
-            # concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
+            # Read Gas Values (CO, O2, NO2)
+            concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
+            # concentration_CO, concentration_O2, concentration_NO2 = 0, 0, 0
     
 
-            # ### SMOKE DETECTION LOGIC =========================
-            # detection_result = pyrolert_detection_result(
-            #     gas_co=float(concentration_CO),
-            #     gas_no2=float(concentration_NO2),
-            #     gas_o2=float(concentration_O2),
-            #     pm25=volume_PM,
-            #     temp_c=temp_c,
-            #     temp_roc=temp_roc,
-            # )
+            ### SMOKE DETECTION LOGIC =========================
+            detection_result = pyrolert_detection_result(
+                gas_co=float(concentration_CO),
+                gas_no2=float(concentration_NO2),
+                gas_o2=float(concentration_O2),
+                pm25=volume_PM,
+                temp_c=temp_c,
+                temp_roc=temp_roc,
+            )
 
-            # confirmed_state = window.add(detection_result)
-            # normal_count, warning_count, high_count = window.counts()
-            # print(f"[Alert] Window N={normal_count} W={warning_count} HL={high_count}")
-            # if confirmed_state is not None:
-            #     print(f"[Alert] Confirmed {confirmed_state} at {datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')}")
-            # alert_manager.handle(confirmed_state, capture_ts)
+            confirmed_state = window.add(detection_result)
+            normal_count, warning_count, high_count = window.counts()
+            print(f"[Alert] Window N={normal_count} W={warning_count} HL={high_count}")
+            if confirmed_state is not None:
+                print(f"[Alert] Confirmed {confirmed_state} at {datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')}")
+            alert_manager.handle(confirmed_state, capture_ts)
+            
+            # Short Buffer before database save
+            sleep(0.9)
+            ### DATABASE SAVING ===============================          
+            if db_conn is not None:
+                try:
+                    row_id = db.insert_reading(
+                        conn=db_conn,
+                        ts=capture_ts,
+                        gas_co=float(concentration_CO),
+                        gas_no2=float(concentration_NO2),
+                        gas_o2=float(concentration_O2),
+                        temp_c=temp_c,
+                        temp_roc=temp_roc,
+                        pm25=volume_PM,
+                        detection_result=detection_result,
+                    )
+                    db_error_count = 0
 
-            # ### DATABASE SAVING ===============================          
-            # if db_conn is not None:
-            #     try:
-            #         row_id = db.insert_reading(
-            #             conn=db_conn,
-            #             ts=capture_ts,
-            #             gas_co=float(concentration_CO),
-            #             gas_no2=float(concentration_NO2),
-            #             gas_o2=float(concentration_O2),
-            #             temp_c=temp_c,
-            #             temp_roc=temp_roc,
-            #             pm25=volume_PM,
-            #             detection_result=detection_result,
-            #         )
-            #         db_error_count = 0
-
-            #         # Immediately push latest reading to Supabase
-            #         # Commented out to Pause the Supabase Sync for now
+                    # Immediately push latest reading to Supabase
+                    # Commented out to Pause the Supabase Sync for now
                     
-            #         row = {
-            #             "id":               row_id,
-            #             "ts":               capture_ts,
-            #             "gas_co":           float(concentration_CO),
-            #             "gas_no2":          float(concentration_NO2),
-            #             "gas_o2":           float(concentration_O2),
-            #             "temp_c":           temp_c,
-            #             "temp_roc":         temp_roc,
-            #             "pm25":             volume_PM,
-            #             "detection_result": detection_result,
-            #         }
-            #         success = supabase_client.push_reading(row)
-            #         if success:
-            #             db.mark_as_synced(db_conn, [row_id])
-            #             print("[Supabase] ✅ Live push successful")  # uncomment if you want to see it
-            #         else:
-            #             print("[Supabase] ⚠️ Live push failed, will sync later via background worker")
+                    # row = {
+                    #     "id":               row_id,
+                    #     "ts":               capture_ts,
+                    #     "gas_co":           float(concentration_CO),
+                    #     "gas_no2":          float(concentration_NO2),
+                    #     "gas_o2":           float(concentration_O2),
+                    #     "temp_c":           temp_c,
+                    #     "temp_roc":         temp_roc,
+                    #     "pm25":             volume_PM,
+                    #     "detection_result": detection_result,
+                    # }
+                    # success = supabase_client.push_reading(row)
+                    # if success:
+                    #     db.mark_as_synced(db_conn, [row_id])
+                    #     print("[Supabase] ✅ Live push successful")  # uncomment if you want to see it
+                    # else:
+                    #     print("[Supabase] ⚠️ Live push failed, will sync later via background worker")
                     
-            #     except Exception as db_write_error:
-            #         db_error_count += 1
-            #         print(f"[!] DB write error {db_error_count}/{max_db_errors}: {db_write_error}")
-            #         # Mitigation: re-open connection on repeated DB errors.
-            #         if db_error_count >= max_db_errors:
-            #             print("[!] Reinitializing SQLite connection after repeated write failures...")
-            #             try:
-            #                 if db_conn is not None:
-            #                     db_conn.close()
-            #                 db_conn = db.init_db(db_path)
-            #                 db_error_count = 0
-            #                 print("SQLite reconnected.")
-            #             except Exception as reconnect_error:
-            #                 print(f"[!] SQLite reconnect failed, DB writes paused: {reconnect_error}")
-            #                 db_conn = None
-            # # PRINT READINGS ================================
-            # #sleep(0.25)
-            # delay = (capture_ts - last_ts) * 1000 if last_ts is not None else 0.0
-            # last_ts = capture_ts
+                except Exception as db_write_error:
+                    db_error_count += 1
+                    print(f"[!] DB write error {db_error_count}/{max_db_errors}: {db_write_error}")
+                    # Mitigation: re-open connection on repeated DB errors.
+                    if db_error_count >= max_db_errors:
+                        print("[!] Reinitializing SQLite connection after repeated write failures...")
+                        try:
+                            if db_conn is not None:
+                                db_conn.close()
+                            db_conn = db.init_db(db_path)
+                            db_error_count = 0
+                            print("SQLite reconnected.")
+                        except Exception as reconnect_error:
+                            print(f"[!] SQLite reconnect failed, DB writes paused: {reconnect_error}")
+                            db_conn = None
+            # PRINT READINGS ================================
+            delay = (capture_ts - last_ts) * 1000 if last_ts is not None else 0.0
+            last_ts = capture_ts
 
-            # ctr += 1
-            # print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, temp_roc, unit_Temp, capture_ts, delay)
+            ctr += 1
+            print_readings(ctr, gas_CO, concentration_CO, gas_O2, concentration_O2, gas_NO2, concentration_NO2, volume_PM, unit_PM, temp_c, temp_roc, unit_Temp, capture_ts, delay)
             
 
         except KeyboardInterrupt:

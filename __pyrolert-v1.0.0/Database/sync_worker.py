@@ -24,7 +24,10 @@ def _sync_loop(db_conn):
         try:
             _run_sync(db_conn)
         except Exception as e:
-            print(f"[Sync] Unexpected error in sync loop: {e}")
+            try:
+                print(f"[Sync] Unexpected error in sync loop: {e}")
+            except (OSError, ValueError):
+                pass
 
         # Wait for next sync interval or until stop is requested
         _stop_event.wait(timeout=SYNC_INTERVAL_S)
@@ -54,7 +57,10 @@ def _run_sync(db_conn):
             print(f"[Sync] ⚠️ {failed_count} rows failed to sync, will retry next cycle")
 
     except Exception as e:
-        print(f"[Sync] Sync run failed: {e}")
+        try:
+            print(f"[Sync] Sync run failed: {e}")
+        except (OSError, ValueError):
+            pass
 
 
 def start(db_conn):
