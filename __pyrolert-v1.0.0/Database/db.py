@@ -167,6 +167,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             """
         )
         _ensure_sensor_readings_columns(conn)
+        _ensure_alert_episodes_columns(conn)
 
 
 def _ensure_sensor_readings_columns(conn: sqlite3.Connection) -> None:
@@ -174,6 +175,13 @@ def _ensure_sensor_readings_columns(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in cursor.fetchall()}
     if "temp_roc" not in existing:
         conn.execute("ALTER TABLE sensor_readings ADD COLUMN temp_roc REAL;")
+
+
+def _ensure_alert_episodes_columns(conn: sqlite3.Connection) -> None:
+    cursor = conn.execute("PRAGMA table_info(alert_episodes);")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "supabase_episode_id" not in existing:
+        conn.execute("ALTER TABLE alert_episodes ADD COLUMN supabase_episode_id INTEGER;")
 
 
 def insert_reading(
@@ -273,6 +281,60 @@ def insert_alert_transition(
             (episode_id, ts, state, meta_text),
         )
     return int(cursor.lastrowid)
+
+
+def fetch_episodes_without_supabase_id(
+    conn: sqlite3.Connection,
+) -> List[sqlite3.Row]:
+    """Return active alert episodes that have not yet been pushed to Supabase."""
+    cursor = conn.execute(
+        """
+        SELECT * FROM alert_episodes
+        WHERE supabase_episode_id IS NULL
+        AND status = 'active'
+        ORDER BY started_ts ASC;
+        """
+    )
+    return list(cursor.fetchall())
+
+
+def set_episode_status(
+    conn: sqlite3.Connection,
+    episode_id: int,
+    status: str,
+) -> None:
+    """Update the status column of an alert episode."""
+    with conn:
+        conn.execute(
+            "UPDATE alert_episodes SET status = ? WHERE id = ?;",
+            (status, episode_id),
+        )
+
+
+def set_supabase_episode_id(
+    conn: sqlite3.Connection,
+    episode_id: int,
+    supabase_episode_id: int,
+) -> None:
+    """Persist the Supabase episode id on an existing alert episode row."""
+    with conn:
+        conn.execute(
+            "UPDATE alert_episodes SET supabase_episode_id = ? WHERE id = ?;",
+            (supabase_episode_id, episode_id),
+        )
+
+
+def fetch_active_episode(conn: sqlite3.Connection) -> Optional[sqlite3.Row]:
+    """Return the most recent active alert episode, or None if there is none."""
+    cursor = conn.execute(
+        """
+        SELECT * FROM alert_episodes
+        WHERE status = 'active'
+        ORDER BY started_ts DESC
+        LIMIT 1;
+        """
+    )
+    return cursor.fetchone()
 
 
 def insert_head_detection_run(

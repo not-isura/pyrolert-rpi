@@ -127,6 +127,30 @@ def push_alert_transition(row: dict) -> bool:
         return False
 
 
+def fetch_episode_status(episode_id: int) -> Optional[str]:
+    """
+    Fetch the current status of an alert episode from Supabase.
+    Returns the status string, or None if unreachable or not found.
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    try:
+        response = (
+            client.table("alert_episodes")
+            .select("status")
+            .eq("id", episode_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0]["status"]
+    except Exception as e:
+        print(f"[Supabase] fetch_episode_status failed: {e}")
+    return None
+
+
 def update_alert_episode(
     episode_id: int,
     last_updated_ts: float,

@@ -1,7 +1,7 @@
 from collections import deque
 from typing import Optional
 
-from Database import db
+from Database import db, supabase_client, sync_worker
 
 
 def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
@@ -47,14 +47,31 @@ class SlidingWindowAlert:
         return normal_count, self._warning_count, self._high_count
 
 
+# --- Heartbeat mode: toggle between the two ---
+HEARTBEAT_EVERY_LOOP = True    # Option 1: push last_updated_ts on every confirmed reading
+HEARTBEAT_INTERVAL_S = 30      # Option 2: used when HEARTBEAT_EVERY_LOOP = False
+
+
 class AlertEpisodeManager:
     _SEVERITY = {"Warning": 1, "High Alert": 2}
 
-    def __init__(self, db_conn, buzzer=None):
+    def __init__(self, db_conn, buzzer=None, led=None):
         self._db_conn = db_conn
         self._buzzer = buzzer
+        self._led = led
         self._episode_id = None
+        self._supabase_episode_id = None
         self._current_state = None
+        self._last_heartbeat_ts = None
+        self._restore_active_episode()
+
+    def _should_heartbeat(self, ts: float) -> bool:
+        if HEARTBEAT_EVERY_LOOP:
+            return True
+        return (
+            self._last_heartbeat_ts is None
+            or ts - self._last_heartbeat_ts >= HEARTBEAT_INTERVAL_S
+        )
 
     def handle(self, confirmed_state: Optional[str], ts: float) -> None:
         if confirmed_state is None:
@@ -64,7 +81,10 @@ class AlertEpisodeManager:
             self._episode_id = self._create_episode(ts, confirmed_state)
             self._current_state = confirmed_state
             self._insert_transition(ts, confirmed_state)
+            self._last_heartbeat_ts = ts
             print(f"[Alert] New episode {self._episode_id} started: {confirmed_state}")
+            if self._led is not None:
+                self._led.solid()
             if confirmed_state == "High Alert" and self._buzzer is not None:
                 self._buzzer.start()
             return
@@ -75,23 +95,81 @@ class AlertEpisodeManager:
             self._update_episode(ts, confirmed_state)
             self._insert_transition(ts, confirmed_state)
             self._current_state = confirmed_state
+            self._last_heartbeat_ts = ts
             print(f"[Alert] Episode {self._episode_id} escalated to: {confirmed_state}")
+            if self._led is not None:
+                self._led.solid()
             if confirmed_state == "High Alert" and self._buzzer is not None:
                 self._buzzer.start()
         else:
-            self._update_episode(ts, None)
+            if self._should_heartbeat(ts):
+                self._update_episode(ts, None)
+                self._last_heartbeat_ts = ts
+
+    def _restore_active_episode(self) -> None:
+        if self._db_conn is None:
+            return
+        row = db.fetch_active_episode(self._db_conn)
+        if row is None:
+            return
+
+        supa_id = row["supabase_episode_id"]
+        if supa_id is not None:
+            status = supabase_client.fetch_episode_status(supa_id)
+            if status is not None and status != "active":
+                db.set_episode_status(self._db_conn, row["id"], status)
+                print(f"[Alert] Episode {row['id']} is '{status}' on Supabase — SQLite updated, skipping restore")
+                return
+            if status is None:
+                print(f"[Alert] Supabase unreachable — trusting SQLite for episode {row['id']} (fail-safe)")
+
+        self._episode_id = row["id"]
+        self._current_state = row["current_state"]
+        self._supabase_episode_id = supa_id
+        self._last_heartbeat_ts = row["last_updated_ts"]
+        print(f"[Alert] Restored active episode {self._episode_id} ({self._current_state}) from SQLite")
+        if self._led is not None:
+            self._led.solid()
+        if self._current_state == "High Alert" and self._buzzer is not None:
+            self._buzzer.start()
+            print("[Alert] Buzzer restarted — restored High Alert episode")
 
     def _create_episode(self, ts: float, state: str) -> int:
         if self._db_conn is None:
             return 0
-        return db.create_alert_episode(self._db_conn, started_ts=ts, current_state=state)
+        episode_id = db.create_alert_episode(self._db_conn, started_ts=ts, current_state=state)
+        self._supabase_episode_id = supabase_client.push_alert_episode({
+            "started_ts":      ts,
+            "last_updated_ts": ts,
+            "current_state":   state,
+            "status":          "active",
+        })
+        if self._supabase_episode_id is None:
+            print("[Alert] Supabase episode id not captured — last_updated_ts will not sync to Supabase")
+        else:
+            print(f"[Alert] Supabase episode id: {self._supabase_episode_id}")
+            db.set_supabase_episode_id(self._db_conn, episode_id, self._supabase_episode_id)
+        return episode_id
 
     def _update_episode(self, ts: float, state: Optional[str]) -> None:
         if self._db_conn is None or self._episode_id is None:
             return
         db.update_alert_episode(self._db_conn, self._episode_id, last_updated_ts=ts, current_state=state)
+        if self._supabase_episode_id is None:
+            row = db.fetch_active_episode(self._db_conn)
+            if row and row["supabase_episode_id"]:
+                self._supabase_episode_id = row["supabase_episode_id"]
+                print(f"[Alert] Supabase episode id recovered from SQLite: {self._supabase_episode_id}")
+        if self._supabase_episode_id is not None:
+            sync_worker.push_episode_update(self._supabase_episode_id, ts=ts, current_state=state)
 
     def _insert_transition(self, ts: float, state: str) -> None:
         if self._db_conn is None or self._episode_id is None:
             return
         db.insert_alert_transition(self._db_conn, self._episode_id, ts=ts, state=state)
+        if self._supabase_episode_id is not None:
+            supabase_client.push_alert_transition({
+                "episode_id": self._supabase_episode_id,
+                "ts":         ts,
+                "state":      state,
+            })

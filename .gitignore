@@ -13,3 +13,5 @@ session_log.txt
 
 .env
 *venv
+
+.claude

@@ -77,6 +77,47 @@ def _run_sync(db_conn):
         except (OSError, ValueError):
             pass
 
+    _sync_pending_episodes(db_conn)
+
+
+def _sync_pending_episodes(db_conn):
+    """Push any active episodes that failed to reach Supabase (e.g. device was offline)."""
+    try:
+        pending = db.fetch_episodes_without_supabase_id(db_conn)
+        if not pending:
+            return
+
+        for episode in pending:
+            try:
+                supa_id = supabase_client.push_alert_episode({
+                    "started_ts":      episode["started_ts"],
+                    "last_updated_ts": episode["last_updated_ts"],
+                    "current_state":   episode["current_state"],
+                    "status":          episode["status"],
+                })
+                if supa_id is not None:
+                    db.set_supabase_episode_id(db_conn, episode["id"], supa_id)
+                    try:
+                        print(f"[Sync] ✅ Episode {episode['id']} pushed to Supabase (id={supa_id})")
+                    except (OSError, ValueError):
+                        pass
+                else:
+                    try:
+                        print(f"[Sync] ⚠️ Episode {episode['id']} push failed, will retry next cycle")
+                    except (OSError, ValueError):
+                        pass
+            except Exception as e:
+                try:
+                    print(f"[Sync] Episode {episode['id']} sync error: {e}")
+                except (OSError, ValueError):
+                    pass
+
+    except Exception as e:
+        try:
+            print(f"[Sync] _sync_pending_episodes failed: {e}")
+        except (OSError, ValueError):
+            pass
+
 
 def push_live(row: dict) -> None:
     try:
@@ -85,19 +126,45 @@ def push_live(row: dict) -> None:
         pass  # queue full — sync_worker will catch it on next batch cycle
 
 
+def push_episode_update(episode_id: int, ts: float, current_state=None) -> None:
+    try:
+        _live_push_queue.put_nowait({
+            "_type":           "episode_update",
+            "episode_id":      episode_id,
+            "last_updated_ts": ts,
+            "current_state":   current_state,
+        })
+    except queue.Full:
+        pass
+
+
 def _live_push_loop(db_conn):
     while not _stop_event.is_set():
         try:
             row = _live_push_queue.get(timeout=1.0)
-            success = supabase_client.push_reading(row)
-            try:
-                if success:
-                    db.mark_as_synced(db_conn, [row["id"]])
-                    print("[Supabase] ✅ Live push successful")
-                else:
-                    print("[Supabase] ⚠️ Live push failed, will retry via sync worker")
-            except (OSError, ValueError):
-                pass
+            if row.get("_type") == "episode_update":
+                success = supabase_client.update_alert_episode(
+                    row["episode_id"],
+                    last_updated_ts=row["last_updated_ts"],
+                    current_state=row["current_state"],
+                )
+                try:
+                    if success:
+                        print(f"[Supabase] ✅ Episode {row['episode_id']} updated (last_updated_ts={row['last_updated_ts']:.3f})")
+                    else:
+                        print(f"[Supabase] ⚠️ Episode {row['episode_id']} update failed")
+                except (OSError, ValueError):
+                    pass
+            else:
+                success = supabase_client.push_reading(row)
+                try:
+                    if success:
+                        db.mark_as_synced(db_conn, [row["id"]])
+                        print("[Supabase] ✅ Live push successful")
+                    else:
+                        print("[Supabase] ⚠️ Live push failed, will retry via sync worker")
+                except (OSError, ValueError):
+                    pass
         except queue.Empty:
             continue
         except Exception as e:

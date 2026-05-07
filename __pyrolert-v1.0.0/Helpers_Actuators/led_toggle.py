@@ -29,6 +29,14 @@ class ToggleLED:
             thread.join(timeout=self._on_time + self._off_time + 0.1)
         self._led.off()
 
+    def solid(self) -> None:
+        with self._lock:
+            self._stop_event.set()
+            thread = self._thread
+        if thread:
+            thread.join(timeout=self._on_time + self._off_time + 0.1)
+        self._led.on()
+
     def toggle(self) -> None:
         if self.is_running():
             self.stop()

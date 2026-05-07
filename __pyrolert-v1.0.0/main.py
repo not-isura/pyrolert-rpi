@@ -209,9 +209,8 @@ if __name__ == "__main__":
         temp_sensor = setup_with_retries("Temperature sensor", Temp_Sensor_setup)
 
         window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
-        alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer)
-
         toggle_led.start()
+        alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer, led=toggle_led)
     except Exception as e:
         error_count += 1
         error_info = {
@@ -280,7 +279,7 @@ if __name__ == "__main__":
             alert_manager.handle(confirmed_state, capture_ts)
             
             # Short Buffer before database save
-            sleep(0.9)
+            sleep(1)
             ### DATABASE SAVING ===============================          
             if db_conn is not None:
                 try:
@@ -298,6 +297,7 @@ if __name__ == "__main__":
                     db_error_count = 0
 
                     sync_worker.push_live({
+                        "_type":            "reading",
                         "id":               row_id,
                         "ts":               capture_ts,
                         "gas_co":           float(concentration_CO),
