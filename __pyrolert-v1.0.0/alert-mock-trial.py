@@ -11,7 +11,7 @@ WINDOW_SIZE = 20
 HIGH_ALERT_THRESHOLD = 12
 WARNING_THRESHOLD = 12
 
-db_conn = db.init_db("db_pyrolert.sqlite")
+db_conn = db.init_db("Database/db_pyrolert.sqlite")
 supabase_client.get_client()
 sync_worker.start(db_conn)
 window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
