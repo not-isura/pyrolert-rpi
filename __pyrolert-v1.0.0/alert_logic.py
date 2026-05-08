@@ -1,3 +1,5 @@
+import time
+import queue
 from collections import deque
 from typing import Optional
 
@@ -55,10 +57,12 @@ HEARTBEAT_INTERVAL_S = 30      # Option 2: used when HEARTBEAT_EVERY_LOOP = Fals
 class AlertEpisodeManager:
     _SEVERITY = {"Warning": 1, "High Alert": 2}
 
-    def __init__(self, db_conn, buzzer=None, led=None):
+    def __init__(self, db_conn, buzzer=None, led=None, command_queue=None, on_episode_created=None):
         self._db_conn = db_conn
         self._buzzer = buzzer
         self._led = led
+        self._command_queue = command_queue
+        self._on_episode_created = on_episode_created
         self._episode_id = None
         self._supabase_episode_id = None
         self._current_state = None
@@ -133,6 +137,8 @@ class AlertEpisodeManager:
         if self._current_state == "High Alert" and self._buzzer is not None:
             self._buzzer.start()
             print("[Alert] Buzzer restarted — restored High Alert episode")
+        if self._on_episode_created and supa_id is not None:
+            self._on_episode_created(supa_id)
 
     def _create_episode(self, ts: float, state: str) -> int:
         if self._db_conn is None:
@@ -149,6 +155,8 @@ class AlertEpisodeManager:
         else:
             print(f"[Alert] Supabase episode id: {self._supabase_episode_id}")
             db.set_supabase_episode_id(self._db_conn, episode_id, self._supabase_episode_id)
+            if self._on_episode_created:
+                self._on_episode_created(self._supabase_episode_id)
         return episode_id
 
     def _update_episode(self, ts: float, state: Optional[str]) -> None:
@@ -173,3 +181,77 @@ class AlertEpisodeManager:
                 "ts":         ts,
                 "state":      state,
             })
+
+    def process_commands(self) -> None:
+        """Drain the command queue and act on each pending command. Call once per main loop cycle."""
+        if self._command_queue is None:
+            return
+        while True:
+            try:
+                cmd = self._command_queue.get_nowait()
+            except Exception:
+                break
+            action = cmd.get("action")
+            if action in ("resolved", "false_alarm"):
+                self._handle_resolution(action)
+            elif action == "mute_buzzer":
+                self._handle_mute_buzzer()
+            elif action == "unmute_buzzer":
+                self._handle_unmute_buzzer()
+
+    def _handle_resolution(self, action: str) -> None:
+        ts = time.time()
+        print(f"[Alert] Episode {self._episode_id} marked as '{action}' by website — acknowledging")
+
+        if self._buzzer is not None:
+            self._buzzer.stop()
+        if self._led is not None:
+            self._led.stop()
+
+        if self._db_conn is not None and self._episode_id is not None:
+            db.set_episode_status(self._db_conn, self._episode_id, action)
+
+        if self._supabase_episode_id is not None:
+            supabase_client.update_alert_episode(
+                self._supabase_episode_id,
+                last_updated_ts=ts,
+                rpi_acknowledged_at=ts,
+            )
+            print(f"[Alert] Acknowledged '{action}' to Supabase (episode {self._supabase_episode_id})")
+
+        self._episode_id = None
+        self._supabase_episode_id = None
+        self._current_state = None
+        self._last_heartbeat_ts = None
+
+    def _handle_mute_buzzer(self) -> None:
+        if self._episode_id is None:
+            return
+        print(f"[Alert] Buzzer mute command received for episode {self._episode_id}")
+
+        if self._buzzer is not None:
+            self._buzzer.stop()
+
+        if self._supabase_episode_id is not None:
+            supabase_client.update_alert_episode(
+                self._supabase_episode_id,
+                last_updated_ts=time.time(),
+                buzzer_status="muted",
+            )
+            print(f"[Alert] Buzzer muted — acknowledged to Supabase")
+
+    def _handle_unmute_buzzer(self) -> None:
+        if self._episode_id is None:
+            return
+        print(f"[Alert] Buzzer unmute command received for episode {self._episode_id}")
+
+        if self._current_state == "High Alert" and self._buzzer is not None:
+            self._buzzer.start()
+
+        if self._supabase_episode_id is not None:
+            supabase_client.update_alert_episode(
+                self._supabase_episode_id,
+                last_updated_ts=time.time(),
+                buzzer_status="on",
+            )
+            print(f"[Alert] Buzzer unmuted — acknowledged to Supabase")

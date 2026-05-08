@@ -30,26 +30,31 @@ def push_reading(row: dict) -> bool:
     Push a single sensor reading to Supabase.
     Returns True if successful, False if failed.
     """
-    client = get_client()
-    if client is None:
-        return False
-
-    try:
-        payload = {
-            "ts":               float(row["ts"]),
-            "gas_co":           row["gas_co"],
-            "gas_no2":          row["gas_no2"],
-            "gas_o2":           row["gas_o2"],
-            "temp_c":           row["temp_c"],
-            "temp_roc":         row.get("temp_roc"),
-            "pm25":             row["pm25"],
-            "detection_result": row["detection_result"],
-        }
-        client.table("sensor_readings").insert(payload).execute()
-        return True
-    except Exception as e:
-        print(f"[Supabase] Push failed: {e}")
-        return False
+    payload = {
+        "ts":               float(row["ts"]),
+        "gas_co":           row["gas_co"],
+        "gas_no2":          row["gas_no2"],
+        "gas_o2":           row["gas_o2"],
+        "temp_c":           row["temp_c"],
+        "temp_roc":         row.get("temp_roc"),
+        "pm25":             row["pm25"],
+        "detection_result": row["detection_result"],
+    }
+    for attempt in range(2):
+        client = get_client()
+        if client is None:
+            return False
+        try:
+            client.table("sensor_readings").insert(payload).execute()
+            return True
+        except Exception as e:
+            if _is_connection_error(e) and attempt == 0:
+                print(f"[Supabase] Connection terminated, resetting and retrying...")
+                _reset_client()
+                continue
+            print(f"[Supabase] Push failed: {e}")
+            return False
+    return False
 
 
 def push_readings_batch(rows: list) -> list[int]:
@@ -151,29 +156,77 @@ def fetch_episode_status(episode_id: int) -> Optional[str]:
     return None
 
 
+def _is_connection_error(e: Exception) -> bool:
+    """Return True if the exception looks like a stale HTTP/2 connection termination."""
+    name = type(e).__name__
+    msg = str(e)
+    return "ConnectionTerminated" in name or "ConnectionTerminated" in msg
+
+
+def _reset_client() -> None:
+    """Force the next get_client() call to open a fresh connection."""
+    global _client
+    _client = None
+
+
 def update_alert_episode(
     episode_id: int,
     last_updated_ts: float,
     current_state: Optional[str] = None,
     status: Optional[str] = None,
+    rpi_acknowledged_at: Optional[float] = None,
+    buzzer_status: Optional[str] = None,
     meta: Optional[dict] = None,
 ) -> bool:
     """Update an alert episode in Supabase; returns True if successful."""
-    client = get_client()
-    if client is None:
-        return False
+    from datetime import datetime, timezone
 
     payload = {"last_updated_ts": float(last_updated_ts)}
     if current_state is not None:
         payload["current_state"] = current_state
     if status is not None:
         payload["status"] = status
+    if rpi_acknowledged_at is not None:
+        payload["rpi_acknowledged_at"] = datetime.fromtimestamp(
+            rpi_acknowledged_at, tz=timezone.utc
+        ).isoformat()
+    if buzzer_status is not None:
+        payload["buzzer_status"] = buzzer_status
     if meta is not None:
         payload["meta"] = meta
 
+    for attempt in range(2):
+        client = get_client()
+        if client is None:
+            return False
+        try:
+            client.table("alert_episodes").update(payload).eq("id", episode_id).execute()
+            return True
+        except Exception as e:
+            if _is_connection_error(e) and attempt == 0:
+                print(f"[Supabase] Connection terminated, resetting and retrying...")
+                _reset_client()
+                continue
+            print(f"[Supabase] Alert episode update failed: {e}")
+            return False
+    return False
+
+
+def fetch_episode_fields(episode_id: int) -> Optional[dict]:
+    """Fetch status, buzzer_muted, and buzzer_status for an episode (used by sync worker fallback)."""
+    client = get_client()
+    if client is None:
+        return None
     try:
-        client.table("alert_episodes").update(payload).eq("id", episode_id).execute()
-        return True
+        response = (
+            client.table("alert_episodes")
+            .select("status, buzzer_muted, buzzer_status")
+            .eq("id", episode_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return dict(response.data[0])
     except Exception as e:
-        print(f"[Supabase] Alert episode update failed: {e}")
-        return False
+        print(f"[Supabase] fetch_episode_fields failed: {e}")
+    return None

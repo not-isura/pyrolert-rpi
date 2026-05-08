@@ -1,7 +1,8 @@
+import queue
 import random
 from time import time, sleep
 
-from Database import db, supabase_client, sync_worker
+from Database import db, supabase_client, sync_worker, realtime_listener
 from alert_logic import AlertEpisodeManager, SlidingWindowAlert, pyrolert_detection_result
 from Helpers_Actuators import ToggleBuzzer, ToggleLED
 
@@ -16,11 +17,20 @@ toggle_led = ToggleLED(LED_PIN)
 
 db_conn = db.init_db("Database/db_pyrolert.sqlite")
 supabase_client.get_client()
-sync_worker.start(db_conn)
+
+command_queue = queue.Queue()
+realtime_listener.start(command_queue)
+sync_worker.start(db_conn, command_queue)
 
 window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
 toggle_led.start()
-alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer, led=toggle_led)
+alert_manager = AlertEpisodeManager(
+    db_conn,
+    buzzer=toggle_buzzer,
+    led=toggle_led,
+    command_queue=command_queue,
+    on_episode_created=realtime_listener.set_episode,
+)
 
 
 # --- Sensor value generators ---
@@ -96,7 +106,7 @@ def _phase_label(reading_num: int) -> str:
 
 print("\n================== Mock Full Trial (150s) ==================\n")
 
-for i in range(1, 151):
+for i in range(1, 451):
     ts = float(time())
     sensors = _sensor_values_for(i)
 
@@ -117,6 +127,7 @@ for i in range(1, 151):
     print(f"      det={detection_result:<12}  confirmed={str(confirmed):<12}  window[N={normal_count} W={warning_count} HA={high_count}]")
 
     alert_manager.handle(confirmed, ts)
+    alert_manager.process_commands()
 
     if db_conn is not None:
         try:
@@ -153,4 +164,5 @@ sleep(5)
 print("\n================== Mock trial complete ==================")
 toggle_buzzer.stop()
 toggle_led.stop()
+realtime_listener.stop()
 sync_worker.stop()

@@ -16,6 +16,7 @@ _sync_thread: threading.Thread = None
 _live_push_thread: threading.Thread = None
 _stop_event = threading.Event()
 _live_push_queue: queue.Queue = queue.Queue(maxsize=100)
+_command_queue: queue.Queue = None
 
 
 def _sync_loop(db_conn):
@@ -34,6 +35,7 @@ def _sync_loop(db_conn):
                 pass
 
         _stop_event.wait(timeout=SYNC_INTERVAL_S)
+
 
     try:
         print("[Sync] Background sync worker stopped ✅")
@@ -78,6 +80,7 @@ def _run_sync(db_conn):
             pass
 
     _sync_pending_episodes(db_conn)
+    _check_episode_commands(db_conn)
 
 
 def _sync_pending_episodes(db_conn):
@@ -115,6 +118,47 @@ def _sync_pending_episodes(db_conn):
     except Exception as e:
         try:
             print(f"[Sync] _sync_pending_episodes failed: {e}")
+        except (OSError, ValueError):
+            pass
+
+
+def _check_episode_commands(db_conn) -> None:
+    """Fallback: poll Supabase for pending commands on the active episode (runs every 30s)."""
+    if _command_queue is None:
+        return
+
+    row = db.fetch_active_episode(db_conn)
+    if row is None:
+        return  # no active episode — skip Supabase call entirely
+
+    supa_id = row["supabase_episode_id"]
+    if supa_id is None:
+        return  # episode not yet pushed to Supabase
+
+    fields = supabase_client.fetch_episode_fields(supa_id)
+    if fields is None:
+        return  # Supabase unreachable
+
+    status = fields.get("status")
+    buzzer_muted = fields.get("buzzer_muted")
+    buzzer_status_remote = fields.get("buzzer_status")
+
+    if status in ("resolved", "false_alarm"):
+        _command_queue.put({"action": status})
+        try:
+            print(f"[Sync] Fallback: episode {supa_id} has status='{status}', queuing command")
+        except (OSError, ValueError):
+            pass
+    elif buzzer_muted is True and buzzer_status_remote == "on":
+        _command_queue.put({"action": "mute_buzzer"})
+        try:
+            print(f"[Sync] Fallback: buzzer mute pending for episode {supa_id}, queuing command")
+        except (OSError, ValueError):
+            pass
+    elif buzzer_muted is False and buzzer_status_remote == "muted":
+        _command_queue.put({"action": "unmute_buzzer"})
+        try:
+            print(f"[Sync] Fallback: buzzer unmute pending for episode {supa_id}, queuing command")
         except (OSError, ValueError):
             pass
 
@@ -174,10 +218,11 @@ def _live_push_loop(db_conn):
                 pass
 
 
-def start(db_conn):
-    global _sync_thread, _live_push_thread
+def start(db_conn, command_queue: queue.Queue = None):
+    global _sync_thread, _live_push_thread, _command_queue
 
     _stop_event.clear()
+    _command_queue = command_queue
     _sync_thread = threading.Thread(
         target=_sync_loop, args=(db_conn,), daemon=True, name="SyncWorker"
     )

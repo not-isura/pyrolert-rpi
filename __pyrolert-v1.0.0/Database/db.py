@@ -70,6 +70,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
                 last_updated_ts REAL NOT NULL,
                 current_state TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
+                buzzer_muted INTEGER NOT NULL DEFAULT 0,
+                buzzer_status TEXT NOT NULL DEFAULT 'on',
+                rpi_acknowledged_at REAL,
                 meta TEXT
             );
             """
@@ -182,6 +185,12 @@ def _ensure_alert_episodes_columns(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in cursor.fetchall()}
     if "supabase_episode_id" not in existing:
         conn.execute("ALTER TABLE alert_episodes ADD COLUMN supabase_episode_id INTEGER;")
+    if "buzzer_muted" not in existing:
+        conn.execute("ALTER TABLE alert_episodes ADD COLUMN buzzer_muted INTEGER NOT NULL DEFAULT 0;")
+    if "buzzer_status" not in existing:
+        conn.execute("ALTER TABLE alert_episodes ADD COLUMN buzzer_status TEXT NOT NULL DEFAULT 'on';")
+    if "rpi_acknowledged_at" not in existing:
+        conn.execute("ALTER TABLE alert_episodes ADD COLUMN rpi_acknowledged_at REAL;")
 
 
 def insert_reading(

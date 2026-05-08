@@ -6,7 +6,8 @@ from datetime import datetime
 
 from Sensor_Libraries import SPS30
 from Helpers_Sensors import GasSensor, GasSensorGroup, TempSensor
-from Database import db, supabase_client, sync_worker
+import queue
+from Database import db, supabase_client, sync_worker, realtime_listener
 from Helpers_Actuators import ToggleBuzzer, ToggleLED
 
 from alert_logic import AlertEpisodeManager, SlidingWindowAlert, pyrolert_detection_result
@@ -191,13 +192,14 @@ if __name__ == "__main__":
     db_conn = None
     db_error_count = 0
     max_db_errors = 5
+    command_queue = None
     try:
         db_conn = db.init_db(db_path)
         print(f"SQLite ready: {db_path}")
-        # Start background sync worker
-        # Commented out to Pause the Supabase Sync for now
         if db_conn is not None:
-            sync_worker.start(db_conn)
+            command_queue = queue.Queue()
+            realtime_listener.start(command_queue)
+            sync_worker.start(db_conn, command_queue)
     except Exception as db_init_error:
         print(f"[!] DB init failed. Continuing without DB writes: {db_init_error}")
 
@@ -210,7 +212,13 @@ if __name__ == "__main__":
 
         window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
         toggle_led.start()
-        alert_manager = AlertEpisodeManager(db_conn, buzzer=toggle_buzzer, led=toggle_led)
+        alert_manager = AlertEpisodeManager(
+            db_conn,
+            buzzer=toggle_buzzer,
+            led=toggle_led,
+            command_queue=command_queue,
+            on_episode_created=realtime_listener.set_episode,
+        )
     except Exception as e:
         error_count += 1
         error_info = {
@@ -277,7 +285,8 @@ if __name__ == "__main__":
             if confirmed_state is not None:
                 print(f"[Alert] Confirmed {confirmed_state} at {datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')}")
             alert_manager.handle(confirmed_state, capture_ts)
-            
+            alert_manager.process_commands()
+
             # Short Buffer before database save
             sleep(1)
             ### DATABASE SAVING ===============================          
@@ -334,7 +343,8 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             print("\n\nStopping measurement...")
-            sync_worker.stop()  # stop background thread cleanly
+            realtime_listener.stop()
+            sync_worker.stop()
             if db_conn is not None:
                 db_conn.close()
             finalize_session(pm_sensor, start_time, "User interrupted", ctr, error_count, error_log)
@@ -357,6 +367,7 @@ if __name__ == "__main__":
             # Check if max errors reached
             if error_count >= max_errors:
                 print(f"\nMaximum error limit ({max_errors}) reached. Stopping...")
+                realtime_listener.stop()
                 sync_worker.stop()
                 if db_conn is not None:
                     db_conn.close()
