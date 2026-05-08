@@ -125,23 +125,28 @@ def _sync_pending_episodes(db_conn):
 def _check_episode_commands(db_conn) -> None:
     """Fallback: poll Supabase for pending commands on the active episode (runs every 30s)."""
     if _command_queue is None:
+        print("[Sync] Fallback skipped: _command_queue is None (was sync_worker.start called with command_queue?)")
         return
 
     row = db.fetch_active_episode(db_conn)
     if row is None:
-        return  # no active episode — skip Supabase call entirely
+        print("[Sync] Fallback skipped: no active episode in SQLite")
+        return
 
     supa_id = row["supabase_episode_id"]
     if supa_id is None:
-        return  # episode not yet pushed to Supabase
+        print(f"[Sync] Fallback skipped: SQLite episode {row['id']} has no supabase_episode_id yet")
+        return
 
     fields = supabase_client.fetch_episode_fields(supa_id)
     if fields is None:
-        return  # Supabase unreachable
+        print(f"[Sync] Fallback skipped: Supabase unreachable for episode {supa_id}")
+        return
 
     status = fields.get("status")
     buzzer_muted = fields.get("buzzer_muted")
     buzzer_status_remote = fields.get("buzzer_status")
+    print(f"[Sync] Fallback poll: episode={supa_id} status={status} buzzer_muted={buzzer_muted} buzzer_status={buzzer_status_remote}")
 
     if status in ("resolved", "false_alarm"):
         _command_queue.put({"action": status})

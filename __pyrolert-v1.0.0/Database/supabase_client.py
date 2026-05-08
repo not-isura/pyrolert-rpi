@@ -30,31 +30,26 @@ def push_reading(row: dict) -> bool:
     Push a single sensor reading to Supabase.
     Returns True if successful, False if failed.
     """
-    payload = {
-        "ts":               float(row["ts"]),
-        "gas_co":           row["gas_co"],
-        "gas_no2":          row["gas_no2"],
-        "gas_o2":           row["gas_o2"],
-        "temp_c":           row["temp_c"],
-        "temp_roc":         row.get("temp_roc"),
-        "pm25":             row["pm25"],
-        "detection_result": row["detection_result"],
-    }
-    for attempt in range(2):
-        client = get_client()
-        if client is None:
-            return False
-        try:
-            client.table("sensor_readings").insert(payload).execute()
-            return True
-        except Exception as e:
-            if _is_connection_error(e) and attempt == 0:
-                print(f"[Supabase] Connection terminated, resetting and retrying...")
-                _reset_client()
-                continue
-            print(f"[Supabase] Push failed: {e}")
-            return False
-    return False
+    client = get_client()
+    if client is None:
+        return False
+
+    try:
+        payload = {
+            "ts":               float(row["ts"]),
+            "gas_co":           row["gas_co"],
+            "gas_no2":          row["gas_no2"],
+            "gas_o2":           row["gas_o2"],
+            "temp_c":           row["temp_c"],
+            "temp_roc":         row.get("temp_roc"),
+            "pm25":             row["pm25"],
+            "detection_result": row["detection_result"],
+        }
+        client.table("sensor_readings").insert(payload).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Push failed: {e}")
+        return False
 
 
 def push_readings_batch(rows: list) -> list[int]:
@@ -156,22 +151,9 @@ def fetch_episode_status(episode_id: int) -> Optional[str]:
     return None
 
 
-def _is_connection_error(e: Exception) -> bool:
-    """Return True if the exception looks like a stale HTTP/2 connection termination."""
-    name = type(e).__name__
-    msg = str(e)
-    return "ConnectionTerminated" in name or "ConnectionTerminated" in msg
-
-
-def _reset_client() -> None:
-    """Force the next get_client() call to open a fresh connection."""
-    global _client
-    _client = None
-
-
 def update_alert_episode(
     episode_id: int,
-    last_updated_ts: float,
+    last_updated_ts: Optional[float] = None,
     current_state: Optional[str] = None,
     status: Optional[str] = None,
     rpi_acknowledged_at: Optional[float] = None,
@@ -181,7 +163,13 @@ def update_alert_episode(
     """Update an alert episode in Supabase; returns True if successful."""
     from datetime import datetime, timezone
 
-    payload = {"last_updated_ts": float(last_updated_ts)}
+    client = get_client()
+    if client is None:
+        return False
+
+    payload = {}
+    if last_updated_ts is not None:
+        payload["last_updated_ts"] = float(last_updated_ts)
     if current_state is not None:
         payload["current_state"] = current_state
     if status is not None:
@@ -195,21 +183,12 @@ def update_alert_episode(
     if meta is not None:
         payload["meta"] = meta
 
-    for attempt in range(2):
-        client = get_client()
-        if client is None:
-            return False
-        try:
-            client.table("alert_episodes").update(payload).eq("id", episode_id).execute()
-            return True
-        except Exception as e:
-            if _is_connection_error(e) and attempt == 0:
-                print(f"[Supabase] Connection terminated, resetting and retrying...")
-                _reset_client()
-                continue
-            print(f"[Supabase] Alert episode update failed: {e}")
-            return False
-    return False
+    try:
+        client.table("alert_episodes").update(payload).eq("id", episode_id).execute()
+        return True
+    except Exception as e:
+        print(f"[Supabase] Alert episode update failed: {e}")
+        return False
 
 
 def fetch_episode_fields(episode_id: int) -> Optional[dict]:

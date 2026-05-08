@@ -214,7 +214,6 @@ class AlertEpisodeManager:
         if self._supabase_episode_id is not None:
             supabase_client.update_alert_episode(
                 self._supabase_episode_id,
-                last_updated_ts=ts,
                 rpi_acknowledged_at=ts,
             )
             print(f"[Alert] Acknowledged '{action}' to Supabase (episode {self._supabase_episode_id})")
@@ -235,7 +234,6 @@ class AlertEpisodeManager:
         if self._supabase_episode_id is not None:
             supabase_client.update_alert_episode(
                 self._supabase_episode_id,
-                last_updated_ts=time.time(),
                 buzzer_status="muted",
             )
             print(f"[Alert] Buzzer muted — acknowledged to Supabase")
@@ -251,7 +249,6 @@ class AlertEpisodeManager:
         if self._supabase_episode_id is not None:
             supabase_client.update_alert_episode(
                 self._supabase_episode_id,
-                last_updated_ts=time.time(),
                 buzzer_status="on",
             )
             print(f"[Alert] Buzzer unmuted — acknowledged to Supabase")

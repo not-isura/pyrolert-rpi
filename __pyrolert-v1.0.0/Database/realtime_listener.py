@@ -7,6 +7,10 @@ _current_episode_id = None
 _id_lock = threading.Lock()
 _thread = None
 
+# Track last-seen state to dedupe heartbeat events that don't change buzzer/status fields
+_last_seen = {"episode_id": None, "status": None, "buzzer_muted": None, "buzzer_status": None}
+_state_lock = threading.Lock()
+
 
 def start(command_queue: queue.Queue) -> None:
     global _thread
@@ -35,18 +39,53 @@ def stop() -> None:
 
 
 def _handle_payload(payload: dict, command_queue: queue.Queue) -> None:
-    record = payload.get("new") or {}
+    # supabase-py async realtime payload shapes have evolved across versions:
+    #   newer: { "data": { "record": {...}, "old_record": {...}, ... } }
+    #   older: { "new": {...}, "old": {...}, ... }
+    record = (
+        payload.get("new")
+        or (payload.get("data") or {}).get("record")
+        or {}
+    )
     episode_id = record.get("id")
 
     with _id_lock:
         current = _current_episode_id
 
-    if current is None or episode_id != current:
+    print(f"[Realtime] Event received: episode_id={episode_id} tracking={current}")
+    if episode_id is None:
+        print(f"[Realtime] Raw payload (for debugging): {payload}")
+
+    if current is None:
+        print("[Realtime] Ignored — no episode tracked (set_episode never called)")
+        return
+    if episode_id != current:
+        print(f"[Realtime] Ignored — id mismatch (got {episode_id}, tracking {current})")
         return
 
     status = record.get("status")
     buzzer_muted = record.get("buzzer_muted")
     buzzer_status_remote = record.get("buzzer_status")
+
+    # Skip heartbeat events: if none of the fields we care about changed,
+    # this update was just a last_updated_ts heartbeat — don't re-queue commands.
+    with _state_lock:
+        unchanged = (
+            _last_seen["episode_id"] == episode_id
+            and _last_seen["status"] == status
+            and _last_seen["buzzer_muted"] == buzzer_muted
+            and _last_seen["buzzer_status"] == buzzer_status_remote
+        )
+        _last_seen["episode_id"] = episode_id
+        _last_seen["status"] = status
+        _last_seen["buzzer_muted"] = buzzer_muted
+        _last_seen["buzzer_status"] = buzzer_status_remote
+
+    if unchanged:
+        print("[Realtime] Skipping — heartbeat (no command-relevant change)")
+        return
+
+    print(f"[Realtime] Evaluating — status={status} buzzer_muted={buzzer_muted} buzzer_status={buzzer_status_remote}")
 
     if status in ("resolved", "false_alarm"):
         command_queue.put({"action": status})
@@ -67,15 +106,23 @@ def _listener_thread(command_queue: queue.Queue) -> None:
 
 
 async def _run(command_queue: queue.Queue) -> None:
-    from Database import supabase_client
+    import os
+    from dotenv import load_dotenv
+    from supabase import acreate_client
 
-    client = supabase_client.get_client()
-    if client is None:
-        print("[Realtime] Supabase client unavailable — listener not started")
+    load_dotenv()
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_ANON_KEY")
+
+    if not url or not key:
+        print("[Realtime] Missing SUPABASE_URL/SUPABASE_ANON_KEY — listener not started")
         return
 
+    client = await acreate_client(url, key)
+    print("[Realtime] Async client created")
+
     channel = client.channel("alert_episodes_commands")
-    channel.on_postgres_changes(
+    await channel.on_postgres_changes(
         event="UPDATE",
         schema="public",
         table="alert_episodes",
