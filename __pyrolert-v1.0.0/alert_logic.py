@@ -8,9 +8,14 @@ from Database import db, supabase_client, sync_worker
 
 def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
     temp_RoC = temp_roc if temp_roc is not None else 0.0
-    if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
+    # if (gas_co >= 60 or gas_no2 >= 1) and (gas_o2 < 18 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 150):
+    #     return "High Alert"
+    # if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
+    #     return "Warning"
+    
+    if (gas_co >= 60 or gas_no2 >= 1) and (pm25 >= 150):
         return "High Alert"
-    if (gas_co >= 25 or gas_no2 >= 0.2) and (gas_o2 < 19 and (temp_c > 57.2 or temp_RoC >= 8) and pm25 >= 90):
+    if (gas_co >= 25 or gas_no2 >= 0.2) and (pm25 >= 90):
         return "Warning"
     return "Normal"
 
@@ -206,7 +211,7 @@ class AlertEpisodeManager:
         if self._buzzer is not None:
             self._buzzer.stop()
         if self._led is not None:
-            self._led.stop()
+            self._led.start()
 
         if self._db_conn is not None and self._episode_id is not None:
             db.set_episode_status(self._db_conn, self._episode_id, action)

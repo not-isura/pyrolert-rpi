@@ -41,8 +41,8 @@ def PM_Sensor_setup():
 
     print("PM Sensor connected and ready\n")
 
-    #print("Startup Cleaning: Wait for 10s")
-    #pm_sensor.start_fan_cleaning()
+    print("Startup Cleaning: Wait for 10s")
+    pm_sensor.start_fan_cleaning()
     sleep(2)
     #print("Cleaning for 10s...")
 
