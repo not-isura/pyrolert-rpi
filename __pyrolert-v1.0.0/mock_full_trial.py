@@ -1,16 +1,20 @@
 import queue
 import random
+from pathlib import Path
 from time import time, sleep
 
 from Database import db, supabase_client, sync_worker, realtime_listener
 from alert_logic import AlertEpisodeManager, SlidingWindowAlert, pyrolert_detection_result
 from Helpers_Actuators import ToggleBuzzer, ToggleLED
+from Headcount_Manager import HeadcountManager
 
 WINDOW_SIZE = 20
 HIGH_ALERT_THRESHOLD = 12
 WARNING_THRESHOLD = 12
 BUZZER_PIN = 22
 LED_PIN = 23
+ESP32_URL = "http://pyrolert-esp32cam.local"
+HEADCOUNT_INTERVAL_S = 30
 
 toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
 toggle_led = ToggleLED(LED_PIN)
@@ -24,12 +28,22 @@ sync_worker.start(db_conn, command_queue)
 
 window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
 toggle_led.start()
+headcount_manager = HeadcountManager(
+    esp32_url=ESP32_URL,
+    model_path=Path("Headcount_Manager/best.pt"),
+    raw_output_dir=Path("Captures_RAW"),
+    annotated_output_dir=Path("Captures_YOLO"),
+    interval_s=HEADCOUNT_INTERVAL_S,
+    db_conn=db_conn,
+    show_labels=False,
+)
 alert_manager = AlertEpisodeManager(
     db_conn,
     buzzer=toggle_buzzer,
     led=toggle_led,
     command_queue=command_queue,
     on_episode_created=realtime_listener.set_episode,
+    headcount_manager=headcount_manager,
 )
 
 
@@ -128,6 +142,7 @@ for i in range(1, 451):
 
     alert_manager.handle(confirmed, ts)
     alert_manager.process_commands()
+    headcount_manager.trigger_if_due(ts)
 
     if db_conn is not None:
         try:

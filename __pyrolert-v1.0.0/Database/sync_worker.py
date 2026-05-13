@@ -81,6 +81,7 @@ def _run_sync(db_conn):
 
     _sync_pending_episodes(db_conn)
     _check_episode_commands(db_conn)
+    _sync_pending_headcount_logs(db_conn)
 
 
 def _sync_pending_episodes(db_conn):
@@ -164,6 +165,62 @@ def _check_episode_commands(db_conn) -> None:
         _command_queue.put({"action": "unmute_buzzer"})
         try:
             print(f"[Sync] Fallback: buzzer unmute pending for episode {supa_id}, queuing command")
+        except (OSError, ValueError):
+            pass
+    elif fields.get("headcount_requested") is True:
+        _command_queue.put({"action": "trigger_headcount"})
+        supabase_client.update_alert_episode(supa_id, headcount_requested=False)
+        try:
+            print(f"[Sync] Fallback: headcount requested for episode {supa_id}, queuing command")
+        except (OSError, ValueError):
+            pass
+
+
+def _sync_pending_headcount_logs(db_conn) -> None:
+    """Retry headcount logs that failed to reach Supabase (e.g. device was offline)."""
+    try:
+        from pathlib import Path
+        pending = db.fetch_unsynced_headcount_logs(db_conn)
+        if not pending:
+            return
+
+        for log in pending:
+            try:
+                annotated_path = Path(log["annotated_path"]) if log["annotated_path"] else None
+                image_url = None
+                if annotated_path and annotated_path.exists():
+                    image_url = supabase_client.upload_headcount_image(annotated_path, annotated_path.name)
+
+                success = supabase_client.push_headcount_log(
+                    ts=log["ts"],
+                    high_count=log["high_count"],
+                    mid_count=log["mid_count"],
+                    low_count=log["low_count"],
+                    total_count=log["total_count"],
+                    trigger_source=log["trigger_source"],
+                    episode_id=log["supabase_episode_id"],
+                    image_url=image_url,
+                )
+                if success:
+                    db.mark_headcount_log_synced(db_conn, log["id"], image_url)
+                    try:
+                        print(f"[Sync] ✅ Headcount log {log['id']} synced to Supabase")
+                    except (OSError, ValueError):
+                        pass
+                else:
+                    try:
+                        print(f"[Sync] ⚠️ Headcount log {log['id']} sync failed, will retry next cycle")
+                    except (OSError, ValueError):
+                        pass
+            except Exception as e:
+                try:
+                    print(f"[Sync] Headcount log {log['id']} sync error: {e}")
+                except (OSError, ValueError):
+                    pass
+
+    except Exception as e:
+        try:
+            print(f"[Sync] _sync_pending_headcount_logs failed: {e}")
         except (OSError, ValueError):
             pass
 

@@ -159,7 +159,6 @@ def update_alert_episode(
     status: Optional[str] = None,
     rpi_acknowledged_at: Optional[float] = None,
     buzzer_status: Optional[str] = None,
-    headcount_requested: Optional[bool] = None,
     meta: Optional[dict] = None,
 ) -> bool:
     """Update an alert episode in Supabase; returns True if successful."""
@@ -182,8 +181,6 @@ def update_alert_episode(
         ).isoformat()
     if buzzer_status is not None:
         payload["buzzer_status"] = buzzer_status
-    if headcount_requested is not None:
-        payload["headcount_requested"] = headcount_requested
     if meta is not None:
         payload["meta"] = meta
 
@@ -196,14 +193,14 @@ def update_alert_episode(
 
 
 def fetch_episode_fields(episode_id: int) -> Optional[dict]:
-    """Fetch status, buzzer_muted, buzzer_status, and headcount_requested for an episode (used by sync worker fallback)."""
+    """Fetch status, buzzer_muted, and buzzer_status for an episode (used by sync worker fallback)."""
     client = get_client()
     if client is None:
         return None
     try:
         response = (
             client.table("alert_episodes")
-            .select("status, buzzer_muted, buzzer_status, headcount_requested")
+            .select("status, buzzer_muted, buzzer_status")
             .eq("id", episode_id)
             .limit(1)
             .execute()
@@ -214,7 +211,7 @@ def fetch_episode_fields(episode_id: int) -> Optional[dict]:
         print(f"[Supabase] fetch_episode_fields failed: {e}")
     return None
 
-    
+
 def upload_headcount_image(image_path: Path, filename: str) -> Optional[str]:
     """Upload annotated headcount image to headcount-captures bucket.
     Returns public URL if successful, None if failed."""

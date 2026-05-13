@@ -1,6 +1,7 @@
 import sys
 import time
 import traceback
+from pathlib import Path
 from time import sleep
 from datetime import datetime
 
@@ -9,6 +10,7 @@ from Helpers_Sensors import GasSensor, GasSensorGroup, TempSensor
 import queue
 from Database import db, supabase_client, sync_worker, realtime_listener
 from Helpers_Actuators import ToggleBuzzer, ToggleLED
+from Headcount_Manager import HeadcountManager
 
 from alert_logic import AlertEpisodeManager, SlidingWindowAlert, pyrolert_detection_result
 
@@ -22,6 +24,8 @@ HIGH_ALERT_THRESHOLD = 12
 WARNING_THRESHOLD = 12
 BUZZER_PIN = 22
 LED_PIN = 23
+ESP32_URL = "http://pyrolert-esp32cam.local"
+HEADCOUNT_INTERVAL_S = 30
 
 toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
 toggle_led = ToggleLED(LED_PIN)
@@ -212,12 +216,22 @@ if __name__ == "__main__":
 
         window = SlidingWindowAlert(WINDOW_SIZE, HIGH_ALERT_THRESHOLD, WARNING_THRESHOLD)
         toggle_led.start()
+        headcount_manager = HeadcountManager(
+            esp32_url=ESP32_URL,
+            model_path=Path("Headcount_Manager/best.pt"),
+            raw_output_dir=Path("Captures_RAW"),
+            annotated_output_dir=Path("Captures_YOLO"),
+            interval_s=HEADCOUNT_INTERVAL_S,
+            db_conn=db_conn,
+            show_labels=False,
+        )
         alert_manager = AlertEpisodeManager(
             db_conn,
             buzzer=toggle_buzzer,
             led=toggle_led,
             command_queue=command_queue,
             on_episode_created=realtime_listener.set_episode,
+            headcount_manager=headcount_manager,
         )
     except Exception as e:
         error_count += 1
@@ -286,6 +300,7 @@ if __name__ == "__main__":
                 print(f"[Alert] Confirmed {confirmed_state} at {datetime.fromtimestamp(capture_ts).strftime('%Y-%m-%d %H:%M:%S')}")
             alert_manager.handle(confirmed_state, capture_ts)
             alert_manager.process_commands()
+            headcount_manager.trigger_if_due(capture_ts)
 
             # Short Buffer before database save
             sleep(1)

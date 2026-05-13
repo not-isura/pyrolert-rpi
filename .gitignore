@@ -15,3 +15,8 @@ session_log.txt
 *venv
 
 .claude
+
+*Captures_RAW/
+*Captures_YOLO/
+*yolo_captures/
+*.pt

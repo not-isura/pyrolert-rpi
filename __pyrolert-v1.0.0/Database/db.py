@@ -169,6 +169,30 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             ON head_detection_results (sensor_reading_id);
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS headcount_logs (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                sqlite_episode_id   INTEGER,
+                supabase_episode_id INTEGER,
+                ts                  REAL NOT NULL,
+                high_count          INTEGER NOT NULL DEFAULT 0,
+                mid_count           INTEGER NOT NULL DEFAULT 0,
+                low_count           INTEGER NOT NULL DEFAULT 0,
+                total_count         INTEGER NOT NULL DEFAULT 0,
+                trigger_source      TEXT NOT NULL DEFAULT 'auto',
+                annotated_path      TEXT,
+                image_url           TEXT,
+                is_synced           INTEGER NOT NULL DEFAULT 0
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_headcount_logs_ts
+            ON headcount_logs (ts);
+            """
+        )
         _ensure_sensor_readings_columns(conn)
         _ensure_alert_episodes_columns(conn)
 
@@ -610,3 +634,61 @@ def mark_as_synced(
             row_ids,
         )
     return cursor.rowcount
+
+
+def insert_headcount_log(
+    conn: sqlite3.Connection,
+    sqlite_episode_id: Optional[int],
+    supabase_episode_id: Optional[int],
+    ts: float,
+    high_count: int,
+    mid_count: int,
+    low_count: int,
+    total_count: int,
+    trigger_source: str,
+    annotated_path: Optional[str] = None,
+) -> int:
+    """Insert a headcount log row (unsynced) and return the new row id."""
+    with conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO headcount_logs
+                (sqlite_episode_id, supabase_episode_id, ts, high_count, mid_count,
+                 low_count, total_count, trigger_source, annotated_path, is_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
+            """,
+            (sqlite_episode_id, supabase_episode_id, ts,
+             high_count, mid_count, low_count, total_count,
+             trigger_source, annotated_path),
+        )
+    return int(cursor.lastrowid)
+
+
+def fetch_unsynced_headcount_logs(
+    conn: sqlite3.Connection,
+    limit: int = 50,
+) -> List[sqlite3.Row]:
+    """Return unsynced headcount log rows ordered by oldest first."""
+    cursor = conn.execute(
+        """
+        SELECT * FROM headcount_logs
+        WHERE is_synced = 0
+        ORDER BY ts ASC
+        LIMIT ?;
+        """,
+        (limit,),
+    )
+    return list(cursor.fetchall())
+
+
+def mark_headcount_log_synced(
+    conn: sqlite3.Connection,
+    log_id: int,
+    image_url: Optional[str] = None,
+) -> None:
+    """Mark a headcount log row as synced and store the Supabase image URL."""
+    with conn:
+        conn.execute(
+            "UPDATE headcount_logs SET is_synced = 1, image_url = ? WHERE id = ?;",
+            (image_url, log_id),
+        )

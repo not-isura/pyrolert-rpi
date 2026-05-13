@@ -7,8 +7,8 @@ _current_episode_id = None
 _id_lock = threading.Lock()
 _thread = None
 
-# Track last-seen state to dedupe heartbeat events that don't change buzzer/status fields
-_last_seen = {"episode_id": None, "status": None, "buzzer_muted": None, "buzzer_status": None}
+# Track last-seen state to dedupe heartbeat events that don't change buzzer/status/headcount fields
+_last_seen = {"episode_id": None, "status": None, "buzzer_muted": None, "buzzer_status": None, "headcount_requested": None}
 _state_lock = threading.Lock()
 
 
@@ -66,6 +66,7 @@ def _handle_payload(payload: dict, command_queue: queue.Queue) -> None:
     status = record.get("status")
     buzzer_muted = record.get("buzzer_muted")
     buzzer_status_remote = record.get("buzzer_status")
+    headcount_requested = record.get("headcount_requested")
 
     # Skip heartbeat events: if none of the fields we care about changed,
     # this update was just a last_updated_ts heartbeat — don't re-queue commands.
@@ -75,17 +76,19 @@ def _handle_payload(payload: dict, command_queue: queue.Queue) -> None:
             and _last_seen["status"] == status
             and _last_seen["buzzer_muted"] == buzzer_muted
             and _last_seen["buzzer_status"] == buzzer_status_remote
+            and _last_seen["headcount_requested"] == headcount_requested
         )
         _last_seen["episode_id"] = episode_id
         _last_seen["status"] = status
         _last_seen["buzzer_muted"] = buzzer_muted
         _last_seen["buzzer_status"] = buzzer_status_remote
+        _last_seen["headcount_requested"] = headcount_requested
 
     if unchanged:
         print("[Realtime] Skipping — heartbeat (no command-relevant change)")
         return
 
-    print(f"[Realtime] Evaluating — status={status} buzzer_muted={buzzer_muted} buzzer_status={buzzer_status_remote}")
+    print(f"[Realtime] Evaluating — status={status} buzzer_muted={buzzer_muted} buzzer_status={buzzer_status_remote} headcount_requested={headcount_requested}")
 
     if status in ("resolved", "false_alarm"):
         command_queue.put({"action": status})
@@ -96,6 +99,12 @@ def _handle_payload(payload: dict, command_queue: queue.Queue) -> None:
     elif buzzer_muted is False and buzzer_status_remote == "muted":
         command_queue.put({"action": "unmute_buzzer"})
         print("[Realtime] Command received: unmute_buzzer")
+    elif headcount_requested is True:
+        command_queue.put({"action": "trigger_headcount"})
+        print("[Realtime] Command received: trigger_headcount")
+        # Reset the flag immediately so repeated heartbeats don't re-queue
+        from Database import supabase_client
+        supabase_client.update_alert_episode(episode_id, headcount_requested=False)
 
 
 def _listener_thread(command_queue: queue.Queue) -> None:

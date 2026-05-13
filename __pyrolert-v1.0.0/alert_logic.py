@@ -62,12 +62,13 @@ HEARTBEAT_INTERVAL_S = 30      # Option 2: used when HEARTBEAT_EVERY_LOOP = Fals
 class AlertEpisodeManager:
     _SEVERITY = {"Warning": 1, "High Alert": 2}
 
-    def __init__(self, db_conn, buzzer=None, led=None, command_queue=None, on_episode_created=None):
+    def __init__(self, db_conn, buzzer=None, led=None, command_queue=None, on_episode_created=None, headcount_manager=None):
         self._db_conn = db_conn
         self._buzzer = buzzer
         self._led = led
         self._command_queue = command_queue
         self._on_episode_created = on_episode_created
+        self._headcount_manager = headcount_manager
         self._episode_id = None
         self._supabase_episode_id = None
         self._current_state = None
@@ -144,6 +145,9 @@ class AlertEpisodeManager:
             print("[Alert] Buzzer restarted — restored High Alert episode")
         if self._on_episode_created and supa_id is not None:
             self._on_episode_created(supa_id)
+        if self._headcount_manager is not None and supa_id is not None:
+            self._headcount_manager.set_episode(supa_id, row["id"])
+            # Don't trigger_now() on restore — trigger_if_due() in the main loop handles the next capture
 
     def _create_episode(self, ts: float, state: str) -> int:
         if self._db_conn is None:
@@ -162,6 +166,9 @@ class AlertEpisodeManager:
             db.set_supabase_episode_id(self._db_conn, episode_id, self._supabase_episode_id)
             if self._on_episode_created:
                 self._on_episode_created(self._supabase_episode_id)
+            if self._headcount_manager is not None:
+                self._headcount_manager.set_episode(self._supabase_episode_id, episode_id)
+                self._headcount_manager.trigger_now()  # immediate first capture on episode start
         return episode_id
 
     def _update_episode(self, ts: float, state: Optional[str]) -> None:
@@ -203,6 +210,8 @@ class AlertEpisodeManager:
                 self._handle_mute_buzzer()
             elif action == "unmute_buzzer":
                 self._handle_unmute_buzzer()
+            elif action == "trigger_headcount":
+                self._handle_trigger_headcount()
 
     def _handle_resolution(self, action: str) -> None:
         ts = time.time()
@@ -222,6 +231,9 @@ class AlertEpisodeManager:
                 rpi_acknowledged_at=ts,
             )
             print(f"[Alert] Acknowledged '{action}' to Supabase (episode {self._supabase_episode_id})")
+
+        if self._headcount_manager is not None:
+            self._headcount_manager.set_episode(None)
 
         self._episode_id = None
         self._supabase_episode_id = None
@@ -257,3 +269,9 @@ class AlertEpisodeManager:
                 buzzer_status="on",
             )
             print(f"[Alert] Buzzer unmuted — acknowledged to Supabase")
+
+    def _handle_trigger_headcount(self) -> None:
+        if self._headcount_manager is None or self._episode_id is None:
+            return
+        print(f"[Alert] Manual headcount trigger received for episode {self._episode_id}")
+        self._headcount_manager.trigger_now()
