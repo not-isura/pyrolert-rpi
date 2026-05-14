@@ -155,16 +155,65 @@ class HeadcountManager:
         frame = cv2.imread(str(image_path))
         return self.process_frame(frame, output_path)
 
+    def _log_timeout(self, trigger_source: str, ts: float) -> None:
+        """Save a timeout entry to SQLite and push to Supabase."""
+        log_id = None
+        if self._db_conn is not None:
+            try:
+                log_id = _db.insert_headcount_log(
+                    self._db_conn,
+                    sqlite_episode_id=self._sqlite_episode_id,
+                    supabase_episode_id=self._episode_id,
+                    ts=ts,
+                    high_count=0,
+                    mid_count=0,
+                    low_count=0,
+                    total_count=0,
+                    trigger_source=trigger_source,
+                    status='timeout',
+                )
+            except Exception as db_err:
+                print(f"[Headcount] SQLite timeout log failed: {db_err}")
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                push_headcount_log,
+                ts, 0, 0, 0, 0,
+                trigger_source,
+                self._episode_id,
+                None,
+                'timeout',
+            )
+            try:
+                pushed = bool(future.result(timeout=SUPABASE_TIMEOUT_S))
+                if pushed and log_id is not None and self._db_conn is not None:
+                    try:
+                        _db.mark_headcount_log_synced(self._db_conn, log_id, None)
+                    except Exception:
+                        pass
+            except FuturesTimeoutError:
+                print(f"[Headcount] Supabase timeout log push timed out — will retry via sync worker.")
+
     def _run(self, trigger_source: str = "auto") -> None:
+        import requests as _requests
         try:
             self._raw_output_dir.mkdir(parents=True, exist_ok=True)
             self._annotated_output_dir.mkdir(parents=True, exist_ok=True)
 
             print("[Headcount] Capturing image from ESP32-CAM...")
-            capture = capture_image_stream(
-                esp32_url=self.esp32_url,
-                output_dir=self._raw_output_dir,
-            )
+            try:
+                capture = capture_image_stream(
+                    esp32_url=self.esp32_url,
+                    output_dir=self._raw_output_dir,
+                )
+            except _requests.exceptions.RequestException as e:
+                ts = time.time()
+                print(f"[Headcount] Capture failed: {e} — logging timeout entry.")
+                self._log_timeout(trigger_source, ts)
+                with self._lock:
+                    self._last_ts = ts  # reset 30s clock so it doesn't retry immediately
+                return
+
             if not capture:
                 print("[Headcount] Capture failed — skipping.")
                 return

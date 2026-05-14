@@ -85,7 +85,7 @@ def _handle_payload(payload: dict, command_queue: queue.Queue) -> None:
         _last_seen["headcount_requested"] = headcount_requested
 
     if unchanged:
-        print("[Realtime] Skipping — heartbeat (no command-relevant change)")
+        # print("[Realtime] Skipping — heartbeat (no command-relevant change)")
         return
 
     print(f"[Realtime] Evaluating — status={status} buzzer_muted={buzzer_muted} buzzer_status={buzzer_status_remote} headcount_requested={headcount_requested}")

@@ -200,6 +200,7 @@ def _sync_pending_headcount_logs(db_conn) -> None:
                     trigger_source=log["trigger_source"],
                     episode_id=log["supabase_episode_id"],
                     image_url=image_url,
+                    status=log["status"],
                 )
                 if success:
                     db.mark_headcount_log_synced(db_conn, log["id"], image_url)
@@ -256,7 +257,8 @@ def _live_push_loop(db_conn):
                 )
                 try:
                     if success:
-                        print(f"[Supabase] ✅ Episode {row['episode_id']} updated (last_updated_ts={row['last_updated_ts']:.3f})")
+                        # print(f"[Supabase] ✅ Episode {row['episode_id']} updated (last_updated_ts={row['last_updated_ts']:.3f})")
+                        pass
                     else:
                         print(f"[Supabase] ⚠️ Episode {row['episode_id']} update failed")
                 except (OSError, ValueError):
@@ -266,7 +268,7 @@ def _live_push_loop(db_conn):
                 try:
                     if success:
                         db.mark_as_synced(db_conn, [row["id"]])
-                        print("[Supabase] ✅ Live push successful")
+                        # print("[Supabase] ✅ Live push successful")
                     else:
                         print("[Supabase] ⚠️ Live push failed, will retry via sync worker")
                 except (OSError, ValueError):

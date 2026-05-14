@@ -244,6 +244,7 @@ def push_headcount_log(
     trigger_source: str,
     episode_id:     Optional[int] = None,
     image_url:      Optional[str] = None,
+    status:         str = 'success',
 ) -> bool:
     """Insert a headcount result into headcount_logs. Returns True if successful."""
     client = get_client()
@@ -259,6 +260,7 @@ def push_headcount_log(
             "trigger_source": trigger_source,
             "episode_id":     episode_id,
             "image_url":      image_url,
+            "status":         status,
         }
         client.table("headcount_logs").insert(payload).execute()
         return True

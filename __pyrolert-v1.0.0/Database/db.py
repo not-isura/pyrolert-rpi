@@ -181,6 +181,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
                 low_count           INTEGER NOT NULL DEFAULT 0,
                 total_count         INTEGER NOT NULL DEFAULT 0,
                 trigger_source      TEXT NOT NULL DEFAULT 'auto',
+                status              TEXT NOT NULL DEFAULT 'success',
                 annotated_path      TEXT,
                 image_url           TEXT,
                 is_synced           INTEGER NOT NULL DEFAULT 0
@@ -195,6 +196,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         _ensure_sensor_readings_columns(conn)
         _ensure_alert_episodes_columns(conn)
+        _ensure_headcount_logs_columns(conn)
 
 
 def _ensure_sensor_readings_columns(conn: sqlite3.Connection) -> None:
@@ -202,6 +204,13 @@ def _ensure_sensor_readings_columns(conn: sqlite3.Connection) -> None:
     existing = {row[1] for row in cursor.fetchall()}
     if "temp_roc" not in existing:
         conn.execute("ALTER TABLE sensor_readings ADD COLUMN temp_roc REAL;")
+
+
+def _ensure_headcount_logs_columns(conn: sqlite3.Connection) -> None:
+    cursor = conn.execute("PRAGMA table_info(headcount_logs);")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "status" not in existing:
+        conn.execute("ALTER TABLE headcount_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'success';")
 
 
 def _ensure_alert_episodes_columns(conn: sqlite3.Connection) -> None:
@@ -646,6 +655,7 @@ def insert_headcount_log(
     low_count: int,
     total_count: int,
     trigger_source: str,
+    status: str = 'success',
     annotated_path: Optional[str] = None,
 ) -> int:
     """Insert a headcount log row (unsynced) and return the new row id."""
@@ -654,12 +664,12 @@ def insert_headcount_log(
             """
             INSERT INTO headcount_logs
                 (sqlite_episode_id, supabase_episode_id, ts, high_count, mid_count,
-                 low_count, total_count, trigger_source, annotated_path, is_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
+                 low_count, total_count, trigger_source, status, annotated_path, is_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
             """,
             (sqlite_episode_id, supabase_episode_id, ts,
              high_count, mid_count, low_count, total_count,
-             trigger_source, annotated_path),
+             trigger_source, status, annotated_path),
         )
     return int(cursor.lastrowid)
 

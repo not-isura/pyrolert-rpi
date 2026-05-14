@@ -137,8 +137,8 @@ for i in range(1, 451):
     normal_count, warning_count, high_count = window.counts()
 
     print(f"[{i:03d}] {_phase_label(i)}")
-    print(f"      CO={sensors['gas_co']:.1f}  NO2={sensors['gas_no2']:.2f}  O2={sensors['gas_o2']:.1f}  PM2.5={sensors['pm25']:.1f}  Temp={sensors['temp_c']:.1f}  RoC={sensors['temp_roc']:.1f}")
-    print(f"      det={detection_result:<12}  confirmed={str(confirmed):<12}  window[N={normal_count} W={warning_count} HA={high_count}]")
+    # print(f"      CO={sensors['gas_co']:.1f}  NO2={sensors['gas_no2']:.2f}  O2={sensors['gas_o2']:.1f}  PM2.5={sensors['pm25']:.1f}  Temp={sensors['temp_c']:.1f}  RoC={sensors['temp_roc']:.1f}")
+    # print(f"      det={detection_result:<12}  confirmed={str(confirmed):<12}  window[N={normal_count} W={warning_count} HA={high_count}]")
 
     alert_manager.handle(confirmed, ts)
     alert_manager.process_commands()

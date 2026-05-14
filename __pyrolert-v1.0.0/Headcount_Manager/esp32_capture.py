@@ -38,22 +38,20 @@ def capture_image_stream(
     esp32_url: str,
     output_dir: Path,
     min_bytes: int = 1000,
-    timeout: float = 15.0,
+    timeout: float = 10.0,
 ) -> Optional[CaptureResult]:
-    """Single-request capture via /capture-stream — faster, no SPIFFS involved."""
+    """Single-request capture via /capture-stream — faster, no SPIFFS involved.
+    Raises requests.exceptions.Timeout on timeout, requests.exceptions.RequestException on other errors."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        response = requests.get(f"{esp32_url}/capture-stream", timeout=timeout)
-        response.raise_for_status()
-        image = response.content
-        if not image or len(image) < min_bytes:
-            return None
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = output_dir / f"esp32_{timestamp}_raw.jpg"
-        filename.write_bytes(image)
-        return CaptureResult(saved_path=filename, bytes_written=len(image), raw_bytes=image)
-    except requests.exceptions.RequestException:
+    response = requests.get(f"{esp32_url}/capture-stream", timeout=timeout)
+    response.raise_for_status()
+    image = response.content
+    if not image or len(image) < min_bytes:
         return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = output_dir / f"esp32_{timestamp}_raw.jpg"
+    filename.write_bytes(image)
+    return CaptureResult(saved_path=filename, bytes_written=len(image), raw_bytes=image)
 
 
 def capture_image_from_esp32(

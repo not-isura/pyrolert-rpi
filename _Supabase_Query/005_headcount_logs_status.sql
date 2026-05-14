@@ -1,0 +1,1 @@
+ALTER TABLE headcount_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'success';
