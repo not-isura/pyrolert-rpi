@@ -15,11 +15,17 @@ class ToggleBuzzer:
         self._lock = threading.Lock()
 
     def start(self) -> None:
+        self._start_with(self._on_time, self._off_time)
+
+    def start_warning(self) -> None:
+        self._start_with(1.0, 1.0)
+
+    def _start_with(self, on_time: float, off_time: float) -> None:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return
             self._stop_event.clear()
-            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread = threading.Thread(target=self._loop, args=(on_time, off_time), daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -43,12 +49,12 @@ class ToggleBuzzer:
         self.stop()
         self._buzzer.close()
 
-    def _loop(self) -> None:
+    def _loop(self, on_time: float, off_time: float) -> None:
         while not self._stop_event.is_set():
             self._buzzer.on()
-            if self._stop_event.wait(self._on_time):
+            if self._stop_event.wait(on_time):
                 break
             self._buzzer.off()
-            if self._stop_event.wait(self._off_time):
+            if self._stop_event.wait(off_time):
                 break
         self._buzzer.off()

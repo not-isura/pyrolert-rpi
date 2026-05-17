@@ -95,8 +95,11 @@ class AlertEpisodeManager:
             print(f"[Alert] New episode {self._episode_id} started: {confirmed_state}")
             if self._led is not None:
                 self._led.solid()
-            if confirmed_state == "High Alert" and self._buzzer is not None:
-                self._buzzer.start()
+            if self._buzzer is not None:
+                if confirmed_state == "High Alert":
+                    self._buzzer.start()
+                elif confirmed_state == "Warning":
+                    self._buzzer.start_warning()
             return
 
         new_severity = self._SEVERITY.get(confirmed_state, 0)
@@ -110,7 +113,8 @@ class AlertEpisodeManager:
             if self._led is not None:
                 self._led.solid()
             if confirmed_state == "High Alert" and self._buzzer is not None:
-                self._buzzer.start()
+                self._buzzer.stop()   # stop warning pattern first
+                self._buzzer.start()  # start high alert pattern
         else:
             if self._should_heartbeat(ts):
                 self._update_episode(ts, None)
@@ -140,9 +144,13 @@ class AlertEpisodeManager:
         print(f"[Alert] Restored active episode {self._episode_id} ({self._current_state}) from SQLite")
         if self._led is not None:
             self._led.solid()
-        if self._current_state == "High Alert" and self._buzzer is not None:
-            self._buzzer.start()
-            print("[Alert] Buzzer restarted — restored High Alert episode")
+        if self._buzzer is not None:
+            if self._current_state == "High Alert":
+                self._buzzer.start()
+                print("[Alert] Buzzer restarted — restored High Alert episode")
+            elif self._current_state == "Warning":
+                self._buzzer.start_warning()
+                print("[Alert] Buzzer restarted — restored Warning episode")
         if self._on_episode_created and supa_id is not None:
             self._on_episode_created(supa_id)
         if self._headcount_manager is not None and supa_id is not None:
