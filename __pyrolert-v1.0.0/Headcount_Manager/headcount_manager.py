@@ -64,6 +64,7 @@ class HeadcountManager:
         self._lock                 = threading.Lock()
         self._episode_id:          Optional[int] = None  # Supabase episode id
         self._sqlite_episode_id:   Optional[int] = None  # local SQLite episode id
+        self._pending_email_callback = None  # retried on next capture if not yet fired
 
     def set_episode(self, supabase_episode_id: Optional[int], sqlite_episode_id: Optional[int] = None) -> None:
         """Link subsequent headcount logs to an alert episode (pass None to unlink)."""
@@ -72,6 +73,7 @@ class HeadcountManager:
         if supabase_episode_id is None:
             with self._lock:
                 self._last_ts = None  # reset timer so next episode starts fresh
+                self._pending_email_callback = None
 
     def trigger_if_due(self, current_ts: float) -> None:
         if self._episode_id is None:
@@ -85,15 +87,18 @@ class HeadcountManager:
                 print(f"[Headcount] Next in {remaining:.0f}s, skipping.")
                 return
             self._busy = True
-        threading.Thread(target=self._run, args=("auto",), daemon=True).start()
+            pending_callback = self._pending_email_callback
+        threading.Thread(target=self._run, args=("auto", pending_callback), daemon=True).start()
 
-    def trigger_now(self) -> None:
+    def trigger_now(self, email_callback=None) -> None:
         with self._lock:
+            if email_callback is not None:
+                self._pending_email_callback = email_callback  # persist for retry if busy
             if self._busy:
                 print("[Headcount] Still running previous capture, skipping.")
                 return
             self._busy = True
-        threading.Thread(target=self._run, args=("manual",), daemon=True).start()
+        threading.Thread(target=self._run, args=("manual", email_callback), daemon=True).start()
 
     def process_frame(self, frame: np.ndarray, output_path: Path) -> HeadcountResult:
         """Run YOLO on a numpy image array and save annotated result to output_path."""
@@ -194,7 +199,7 @@ class HeadcountManager:
             except FuturesTimeoutError:
                 print(f"[Headcount] Supabase timeout log push timed out — will retry via sync worker.")
 
-    def _run(self, trigger_source: str = "auto") -> None:
+    def _run(self, trigger_source: str = "auto", email_callback=None) -> None:
         import requests as _requests
         try:
             self._raw_output_dir.mkdir(parents=True, exist_ok=True)
@@ -290,6 +295,20 @@ class HeadcountManager:
                     _db.mark_headcount_log_synced(self._db_conn, log_id, image_url)
                 except Exception as db_err:
                     print(f"[Headcount] SQLite mark-synced failed: {db_err}")
+
+            if email_callback is not None:
+                # Clear pending before firing — successful capture means no retry needed
+                with self._lock:
+                    if self._pending_email_callback is email_callback:
+                        self._pending_email_callback = None
+                # Fire in a separate thread so SMTP sending doesn't block _busy
+                _tc, _ip, _iu = result.total_count, str(annotated_path), image_url
+                def _fire_email(_cb=email_callback, _t=_tc, _p=_ip, _u=_iu):
+                    try:
+                        _cb(_t, _p, _u)
+                    except Exception as e:
+                        print(f"[Headcount] Email callback error: {e}")
+                threading.Thread(target=_fire_email, daemon=True).start()
 
             with self._lock:
                 self._last_ts = time.time()

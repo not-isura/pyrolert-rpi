@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -9,21 +10,21 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 
-# Global Supabase client instance
-_client: Optional[Client] = None
+# Thread-local storage — each thread gets its own client instance to avoid
+# concurrent httpx connection pool corruption (deque mutated during iteration)
+_thread_local = threading.local()
 
 
 def get_client() -> Optional[Client]:
-    """Get or initialize the Supabase client."""
-    global _client
-    if _client is None:
+    """Get or initialize a per-thread Supabase client."""
+    if not hasattr(_thread_local, "client") or _thread_local.client is None:
         try:
-            _client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+            _thread_local.client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
             print("[Supabase] Client initialized ✅")
         except Exception as e:
             print(f"[Supabase] Failed to initialize client: {e}")
-            _client = None
-    return _client
+            _thread_local.client = None
+    return _thread_local.client
 
 
 def push_reading(row: dict) -> bool:
@@ -159,6 +160,7 @@ def update_alert_episode(
     status: Optional[str] = None,
     rpi_acknowledged_at: Optional[float] = None,
     buzzer_status: Optional[str] = None,
+    buzzer_muted: Optional[bool] = None,
     headcount_requested: Optional[bool] = None,
     meta: Optional[dict] = None,
 ) -> bool:
@@ -182,6 +184,8 @@ def update_alert_episode(
         ).isoformat()
     if buzzer_status is not None:
         payload["buzzer_status"] = buzzer_status
+    if buzzer_muted is not None:
+        payload["buzzer_muted"] = buzzer_muted
     if headcount_requested is not None:
         payload["headcount_requested"] = headcount_requested
     if meta is not None:
@@ -233,6 +237,51 @@ def upload_headcount_image(image_path: Path, filename: str) -> Optional[str]:
     except Exception as e:
         print(f"[Supabase] Image upload failed: {e}")
         return None
+
+
+def fetch_resolution_details(episode_id: int) -> dict:
+    """Fetch resolved_by and resolution_message for a resolved episode."""
+    client = get_client()
+    if client is None:
+        return {}
+    try:
+        response = (
+            client.table("alert_episodes")
+            .select("resolved_by, resolution_message")
+            .eq("id", episode_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return dict(response.data[0])
+    except Exception as e:
+        print(f"[Supabase] fetch_resolution_details failed: {e}")
+    return {}
+
+
+def fetch_all_active_user_emails() -> list[str]:
+    """Fetch emails of all active users for alert email notifications.
+    If EMAIL_TEST_RECIPIENT is set in env, only that address is returned (for testing)."""
+    override = os.getenv("EMAIL_TEST_RECIPIENT")
+    if override:
+        return [e.strip() for e in override.split(",") if e.strip()]
+
+    client = get_client()
+    if client is None:
+        return []
+    try:
+        response = (
+            client.table("users")
+            .select("email")
+            .eq("status", "active")
+            .not_.ilike("email", "%@test.pyrolert.com")
+            .execute()
+        )
+        if response.data:
+            return [row["email"] for row in response.data]
+    except Exception as e:
+        print(f"[Supabase] fetch_all_active_user_emails failed: {e}")
+    return []
 
 
 def push_headcount_log(

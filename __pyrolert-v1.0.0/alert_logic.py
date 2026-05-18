@@ -1,9 +1,12 @@
 import time
 import queue
+import threading
 from collections import deque
+from datetime import datetime
 from typing import Optional
 
 from Database import db, supabase_client, sync_worker
+from Helpers_Email import send_alert_email, send_escalation_email, send_headcount_update_email, send_resolution_email
 
 
 def pyrolert_detection_result(gas_co, gas_no2, gas_o2, pm25, temp_c, temp_roc=None):
@@ -73,6 +76,7 @@ class AlertEpisodeManager:
         self._supabase_episode_id = None
         self._current_state = None
         self._last_heartbeat_ts = None
+        self._episode_started_ts: Optional[float] = None
         self._restore_active_episode()
 
     def _should_heartbeat(self, ts: float) -> bool:
@@ -89,6 +93,7 @@ class AlertEpisodeManager:
 
         if self._episode_id is None:
             self._episode_id = self._create_episode(ts, confirmed_state)
+            self._episode_started_ts = ts
             self._current_state = confirmed_state
             self._insert_transition(ts, confirmed_state)
             self._last_heartbeat_ts = ts
@@ -115,6 +120,36 @@ class AlertEpisodeManager:
             if confirmed_state == "High Alert" and self._buzzer is not None:
                 self._buzzer.stop()   # stop warning pattern first
                 self._buzzer.start()  # start high alert pattern
+                # Reset mute state in Supabase — buzzer is restarting regardless of prior mute
+                if self._supabase_episode_id is not None:
+                    supabase_client.update_alert_episode(
+                        self._supabase_episode_id,
+                        buzzer_muted=False,
+                        buzzer_status="on",
+                    )
+            if self._headcount_manager is not None:
+                started_ts_str = datetime.fromtimestamp(self._episode_started_ts or ts).strftime("%B %d, %Y, %I:%M:%S %p")
+                escalation_ts_str = datetime.fromtimestamp(ts).strftime("%B %d, %Y, %I:%M:%S %p")
+                state_str = confirmed_state
+
+                # Email 1: immediate escalation notification — headcount not yet available
+                recipients = supabase_client.fetch_all_active_user_emails()
+                if recipients:
+                    def _send_escalation(r=recipients, s=state_str, t=started_ts_str, e=escalation_ts_str):
+                        for recipient_email in r:
+                            send_escalation_email(recipient_email, s, t, e, "Pending")
+                    threading.Thread(target=_send_escalation, daemon=True).start()
+                    print(f"[Alert] Immediate escalation email queued for {len(recipients)} recipient(s)")
+
+                # Email 2: follow-up after first successful capture — includes headcount + image
+                def _on_escalation_capture(total_count, img_path, img_url, r=recipients, s=state_str, t=escalation_ts_str):
+                    if not r:
+                        return
+                    for recipient_email in r:
+                        send_headcount_update_email(recipient_email, s, t, total_count, img_path, img_url)
+                    print(f"[Alert] Escalation headcount follow-up email sent to {len(r)} recipient(s)")
+
+                self._headcount_manager.trigger_now(email_callback=_on_escalation_capture)
         else:
             if self._should_heartbeat(ts):
                 self._update_episode(ts, None)
@@ -141,6 +176,7 @@ class AlertEpisodeManager:
         self._current_state = row["current_state"]
         self._supabase_episode_id = supa_id
         self._last_heartbeat_ts = row["last_updated_ts"]
+        self._episode_started_ts = row["started_ts"]
         print(f"[Alert] Restored active episode {self._episode_id} ({self._current_state}) from SQLite")
         if self._led is not None:
             self._led.solid()
@@ -176,7 +212,28 @@ class AlertEpisodeManager:
                 self._on_episode_created(self._supabase_episode_id)
             if self._headcount_manager is not None:
                 self._headcount_manager.set_episode(self._supabase_episode_id, episode_id)
-                self._headcount_manager.trigger_now()  # immediate first capture on episode start
+
+                started_ts_str = datetime.fromtimestamp(ts).strftime("%B %d, %Y, %I:%M:%S %p")
+                state_str = state
+
+                # Email 1: immediate notification — headcount not yet available
+                recipients = supabase_client.fetch_all_active_user_emails()
+                if recipients:
+                    def _send_immediate(r=recipients, s=state_str, t=started_ts_str):
+                        for recipient_email in r:
+                            send_alert_email(recipient_email, s, t, "Pending")
+                    threading.Thread(target=_send_immediate, daemon=True).start()
+                    print(f"[Alert] Immediate alert email queued for {len(recipients)} recipient(s)")
+
+                # Email 2: follow-up after first successful capture — includes headcount + image
+                def _on_capture(total_count, img_path, img_url, r=recipients, s=state_str, t=started_ts_str):
+                    if not r:
+                        return
+                    for recipient_email in r:
+                        send_headcount_update_email(recipient_email, s, t, total_count, img_path, img_url)
+                    print(f"[Alert] Headcount follow-up email sent to {len(r)} recipient(s)")
+
+                self._headcount_manager.trigger_now(email_callback=_on_capture)  # immediate first capture on episode start
         return episode_id
 
     def _update_episode(self, ts: float, state: Optional[str]) -> None:
@@ -243,10 +300,27 @@ class AlertEpisodeManager:
         if self._headcount_manager is not None:
             self._headcount_manager.set_episode(None)
 
+        # Send resolution/false alarm notification email
+        resolved_state  = self._current_state
+        started_ts      = self._episode_started_ts
+        resolved_ts_str = datetime.fromtimestamp(ts).strftime("%B %d, %Y, %I:%M:%S %p")
+        started_ts_str  = datetime.fromtimestamp(started_ts).strftime("%B %d, %Y, %I:%M:%S %p") if started_ts else resolved_ts_str
+        details         = supabase_client.fetch_resolution_details(self._supabase_episode_id) if self._supabase_episode_id else {}
+        resolved_by     = details.get("resolved_by")
+        res_message     = details.get("resolution_message")
+        recipients = supabase_client.fetch_all_active_user_emails()
+        if recipients and resolved_state:
+            def _send_resolution(r=recipients, a=action, s=resolved_state, t=started_ts_str, e=resolved_ts_str, rb=resolved_by, rm=res_message):
+                for recipient_email in r:
+                    send_resolution_email(recipient_email, a, s, t, e, rb, rm)
+            threading.Thread(target=_send_resolution, daemon=True).start()
+            print(f"[Alert] Resolution email queued ({action}) for {len(recipients)} recipient(s)")
+
         self._episode_id = None
         self._supabase_episode_id = None
         self._current_state = None
         self._last_heartbeat_ts = None
+        self._episode_started_ts = None
 
     def _handle_mute_buzzer(self) -> None:
         if self._episode_id is None:
@@ -268,8 +342,11 @@ class AlertEpisodeManager:
             return
         print(f"[Alert] Buzzer unmute command received for episode {self._episode_id}")
 
-        if self._current_state == "High Alert" and self._buzzer is not None:
-            self._buzzer.start()
+        if self._buzzer is not None:
+            if self._current_state == "High Alert":
+                self._buzzer.start()
+            elif self._current_state == "Warning":
+                self._buzzer.start_warning()
 
         if self._supabase_episode_id is not None:
             supabase_client.update_alert_episode(
