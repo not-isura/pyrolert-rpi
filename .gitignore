@@ -1,5 +1,6 @@
 /trash
 *__pycache__
+*.pytest_cache
 /test_db/__pycache__
 /test_db/.pytest_cache
 /test_db/__init__.py
@@ -10,3 +11,12 @@ session_log.txt
 *.sqlite-shm
 *.sqlite-wal
 
+.env
+*venv
+
+.claude
+
+*Captures_RAW/
+*Captures_YOLO/
+*yolo_captures/
+*.pt
