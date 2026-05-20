@@ -205,6 +205,7 @@ if __name__ == "__main__":
             command_queue = queue.Queue()
             realtime_listener.start(command_queue)
             sync_worker.start(db_conn, command_queue)
+            supabase_client.get_client()
     except Exception as db_init_error:
         print(f"[!] DB init failed. Continuing without DB writes: {db_init_error}")
 
