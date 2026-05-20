@@ -26,6 +26,7 @@ BUZZER_PIN = 22
 LED_PIN = 23
 ESP32_URL = "http://pyrolert-esp32cam.local"
 HEADCOUNT_INTERVAL_S = 30
+O2_CALIBRATION_OFFSET = -0.3  # correct sensor drift: raw reading ~21.2%, actual ~20.9%
 
 toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
 toggle_led = ToggleLED(LED_PIN)
@@ -281,7 +282,10 @@ if __name__ == "__main__":
 
             # Read Gas Values (CO, O2, NO2)
             concentration_CO, concentration_O2, concentration_NO2 = GAS_measure(gas_group)
-    
+            if concentration_O2 >= 20.9:
+                concentration_O2 = 20.9
+            else:
+                concentration_O2 = concentration_O2 + O2_CALIBRATION_OFFSET
 
             ### SMOKE DETECTION LOGIC =========================
             detection_result = pyrolert_detection_result(

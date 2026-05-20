@@ -15,6 +15,7 @@ BUZZER_PIN = 22
 LED_PIN = 23
 ESP32_URL = "http://pyrolert-esp32cam.local"
 HEADCOUNT_INTERVAL_S = 30
+#MOCK_CAPTURE_IMAGE = Path("../esp32_20260502_140319.jpg")  # set to None to use real ESP32-CAM
 
 toggle_buzzer = ToggleBuzzer(BUZZER_PIN)
 toggle_led = ToggleLED(LED_PIN)
@@ -36,6 +37,7 @@ headcount_manager = HeadcountManager(
     interval_s=HEADCOUNT_INTERVAL_S,
     db_conn=db_conn,
     show_labels=False,
+    #mock_image_path=MOCK_CAPTURE_IMAGE,
 )
 alert_manager = AlertEpisodeManager(
     db_conn,

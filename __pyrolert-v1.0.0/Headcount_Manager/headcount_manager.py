@@ -23,6 +23,9 @@ CONF_HIGH = 0.70
 CONF_MID  = 0.50
 CONF_LOW  = 0.30
 
+# NMS IoU threshold — lower = more aggressive suppression of overlapping boxes
+NMS_IOU_THRESHOLD = 0.45
+
 # BGR colors
 COLOR_GREEN  = (0, 255, 0)
 COLOR_YELLOW = (0, 255, 255)
@@ -50,6 +53,7 @@ class HeadcountManager:
         db_conn=None,
         resize:               tuple[int, int] | None = None,  # (width, height), None = no resize
         show_labels:          bool = True,                    # False = boxes only, no label/percentage
+        mock_image_path:      Path | None = None,            # set to bypass ESP32 and use a static image
     ) -> None:
         self.esp32_url             = esp32_url
         self._raw_output_dir       = Path(raw_output_dir)
@@ -58,6 +62,7 @@ class HeadcountManager:
         self.resize                = resize
         self.show_labels           = show_labels
         self._db_conn              = db_conn
+        self._mock_image_path      = Path(mock_image_path) if mock_image_path else None
         self.model                 = YOLO(str(model_path), task="detect")
         self._last_ts:              float | None = None
         self._busy                 = False
@@ -105,7 +110,7 @@ class HeadcountManager:
         if self.resize:
             frame = cv2.resize(frame, self.resize, interpolation=cv2.INTER_AREA)
 
-        results    = self.model.predict(frame, verbose=False)
+        results    = self.model.predict(frame, verbose=False, iou=NMS_IOU_THRESHOLD)
         detections = results[0].boxes
 
         high_count = 0
@@ -205,34 +210,43 @@ class HeadcountManager:
             self._raw_output_dir.mkdir(parents=True, exist_ok=True)
             self._annotated_output_dir.mkdir(parents=True, exist_ok=True)
 
-            print("[Headcount] Capturing image from ESP32-CAM...")
-            try:
-                capture = capture_image_stream(
-                    esp32_url=self.esp32_url,
-                    output_dir=self._raw_output_dir,
-                )
-            except _requests.exceptions.RequestException as e:
-                ts = time.time()
-                print(f"[Headcount] Capture failed: {e} — logging timeout entry.")
-                self._log_timeout(trigger_source, ts)
-                with self._lock:
-                    self._last_ts = ts  # reset 30s clock so it doesn't retry immediately
-                return
+            if self._mock_image_path is not None:
+                print(f"[Headcount] Using mock image: {self._mock_image_path.name}")
+                frame = cv2.imread(str(self._mock_image_path))
+                if frame is None:
+                    print(f"[Headcount] Mock image not found: {self._mock_image_path}")
+                    return
+                raw_stem       = datetime.now().strftime("mock_%Y%m%d_%H%M%S")
+                annotated_path = self._annotated_output_dir / f"{raw_stem}_annotated.jpg"
+            else:
+                print("[Headcount] Capturing image from ESP32-CAM...")
+                try:
+                    capture = capture_image_stream(
+                        esp32_url=self.esp32_url,
+                        output_dir=self._raw_output_dir,
+                    )
+                except _requests.exceptions.RequestException as e:
+                    ts = time.time()
+                    print(f"[Headcount] Capture failed: {e} — logging timeout entry.")
+                    self._log_timeout(trigger_source, ts)
+                    with self._lock:
+                        self._last_ts = ts  # reset 30s clock so it doesn't retry immediately
+                    return
 
-            if not capture:
-                print("[Headcount] Capture failed — skipping.")
-                return
+                if not capture:
+                    print("[Headcount] Capture failed — skipping.")
+                    return
 
-            # Decode raw JPEG bytes to numpy array (no second disk read)
-            np_arr = np.frombuffer(capture.raw_bytes, dtype=np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            if frame is None:
-                print("[Headcount] Failed to decode image bytes.")
-                return
+                # Decode raw JPEG bytes to numpy array (no second disk read)
+                np_arr = np.frombuffer(capture.raw_bytes, dtype=np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if frame is None:
+                    print("[Headcount] Failed to decode image bytes.")
+                    return
 
-            # Annotated image saved separately from the raw backup
-            raw_stem       = capture.saved_path.stem  # esp32_YYYYMMDD_HHMMSS_raw
-            annotated_path = self._annotated_output_dir / f"{raw_stem.replace('_raw', '')}_annotated.jpg"
+                # Annotated image saved separately from the raw backup
+                raw_stem       = capture.saved_path.stem  # esp32_YYYYMMDD_HHMMSS_raw
+                annotated_path = self._annotated_output_dir / f"{raw_stem.replace('_raw', '')}_annotated.jpg"
 
             result = self.process_frame(frame, annotated_path)
             self._print_result(result)
