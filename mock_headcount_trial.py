@@ -23,6 +23,7 @@ headcount_manager = HeadcountManager(
     db_conn=db_conn,
     show_labels=True,
     mock_image_path=MOCK_CAPTURE_IMAGE,
+    #resize=[640, 640],
 )
 
 if MOCK_EPISODE_ID is not None:
